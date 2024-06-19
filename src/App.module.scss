@@ -1,0 +1,27 @@
+.root{
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  > :first-child{//ヘッダ
+    flex: 0 0 0;
+  }
+  > :nth-child(2){//コンテンツ
+    flex: 1 0 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    > :first-child{//tools
+      flex: 0 0 0;
+    }
+    > :nth-child(2){//コンテンツ
+      flex: 1 0 0;
+
+    }
+  }
+  > :last-child{//フッタ
+    flex: 0 0 0;
+    background-color: black;
+  }
+}
