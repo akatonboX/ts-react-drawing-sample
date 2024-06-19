@@ -11,13 +11,8 @@ interface Selection{
   set: (shapes: Shape[]) => void;
   append: (shapes: Shape[]) => void;
   save: () => void;
-  getOriginal: (shape: Shape) => Shape;
 }
-export interface SelectionShape{
-  id: string;
-  shape: Shape;
-  original: Shape;
-}
+
 type StartEdit = (x: number, y: number, command: string) => void;
 
 export interface DrawingController{
@@ -42,45 +37,18 @@ function _Drawing(
   const svgElementRef = React.useRef<SVGSVGElement>(null);
   
   //■選択されたshapeのクローンを取得する
-  const [_selection, _setSelected] = React.useState<SelectionShape[]>([]);
-  const clonedSelection = _selection.map(item => lodash.cloneDeep(item.shape));
+  const [_selection, _setSelected] = React.useState<Shape[]>([]);
+  const clonedSelection = _selection.map(item => lodash.cloneDeep(item));
   const selection: Selection = {
     shapes: clonedSelection,
     clear: () => {_setSelected([]);},
-    set: (shapes: Shape[]) => {
-      _setSelected(shapes.map(item => {
-        return {
-          id: item.id,
-          shape: lodash.cloneDeep(item),
-          original: lodash.cloneDeep(item)
-        };
-      }));
-    },
+    set: (shapes: Shape[]) => {_setSelected(shapes);},
     append: (shapes: Shape[]) => {
       //■すでに選択済みのものを除外
       const newShapes = shapes.filter(shape => _selection.find(selectedShape => selectedShape.id === shape.id) == null);
-      _setSelected([..._selection, ...newShapes.map(item => {
-        return {
-          id: item.id,
-          shape: lodash.cloneDeep(item),
-          original: lodash.cloneDeep(item)
-        };
-      })]);
+      _setSelected([..._selection, ...newShapes]);
     },
-    save: () => {
-      _setSelected(_selection.map(item => {
-        return {
-          id: item.id,
-          shape: clonedSelection.find(clonedShape => clonedShape.id === item.id) ?? item.original,
-          original: item.original,
-        };
-      }));
-    },
-    getOriginal: (shape: Shape) => {
-      const result = _selection.find(item => item.id === shape.id);
-      if(result == null)throw new Error("shapeが見つからない");
-      return result.original;
-    }
+    save: () => {_setSelected(clonedSelection);},
   }
 
   //■コマンドの実行状態
@@ -122,79 +90,114 @@ function _Drawing(
         for(const shape of selection.shapes){
           //■対象のshapeを取得
           const targetShape = props.shapes.find(item => item.id === shape.id);
-          if(targetShape == null)break;
+          if(targetShape == null)break;        
 
           switch(executeCommandInfo.current.type){
             case "move":
               shape.left = (targetShape?.left ?? 0) + currentPoint.x- startPoint.x;
               shape.top = (targetShape?.top ?? 0) + currentPoint.y - startPoint.y;
               break;
-            case "nw-resize":
-            case "e-resize":
-            case "w-resize":
-              
-              //■回転のアフィン行列
-              const matrix = compose(rotateDEG(shape.angle * -1, shape.left + shape.width / 2, shape.top + shape.height / 2));
 
-              //■回転後の各種座標を計算
-              const routatedStartPoint = applyToPoint(matrix, startPoint);
-              const routatedCurrentPoint = applyToPoint(matrix, currentPoint);
-              console.log("★", executeCommandInfo.current.type,startPoint, routatedStartPoint);
+            case "nw-resize":
+            case "n-resize":
+            case "ne-resize":
+            case "e-resize":
+            case "se-resize":
+            case "s-resize":
+            case "sw-resize":
+            case "w-resize":
+              //■回転後の座標系のマウス座標を、回転前の座標系の座標に変換
+              const [routatedStartPoint, routatedCurrentPoint] = (() => {
+                const matrix = compose(rotateDEG(shape.angle * -1, shape.left + shape.width / 2, shape.top + shape.height / 2));
+                return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
+              })();
 
               //■変化の差を得る
               const difference = {
-                x: routatedCurrentPoint.x - routatedStartPoint.x,
-                y: routatedCurrentPoint.y - routatedStartPoint.y,
-              }
-              switch(executeCommandInfo.current.type){
-                case "nw-resize":
-                  if(targetShape.width + (difference.x * -1) >= MIN_SHAPE_SIZE){
-                    shape.width = targetShape.width + (difference.x * -1);
-                    shape.left = targetShape.left + difference.x;
+                x: (() => {
+                  switch(executeCommandInfo.current.type){
+                    case "ne-resize":
+                    case "e-resize":
+                    case "se-resize":
+                      return routatedCurrentPoint.x - routatedStartPoint.x;
+                    case "nw-resize":
+                    case "w-resize": 
+                    case "sw-resize":
+                      return routatedStartPoint.x - routatedCurrentPoint.x;
+                    default: return 0;
                   }
-                  if(targetShape.height + (difference.y * -1) >= MIN_SHAPE_SIZE){
-                    shape.height = targetShape.height + (difference.y * -1);
-                    shape.top = targetShape.top + difference.y;
+                })(),               
+                y: (() => {
+                  switch(executeCommandInfo.current.type){
+                    case "ne-resize":
+                    case "n-resize":
+                    case "nw-resize":
+                      return  routatedStartPoint.y - routatedCurrentPoint.y;
+                    case "se-resize":
+                    case "s-resize":
+                    case "sw-resize":
+                      return routatedCurrentPoint.y - routatedStartPoint.y;
+                    default: return 0;
                   }
-                  break;
-                case "e-resize":
-                  if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
-                    shape.width = targetShape.width + difference.x;
-                  }
-                  //■オリジナルの左上座標を計算
-                  const originalMatrix = compose(rotateDEG(selection.getOriginal(targetShape).angle, selection.getOriginal(targetShape).left + selection.getOriginal(targetShape).width / 2, selection.getOriginal(targetShape).top + selection.getOriginal(targetShape).height / 2));
-                  const originalTopPoint = applyToPoint(originalMatrix, {x: selection.getOriginal(targetShape).left, y: selection.getOriginal(targetShape).top});
-                  
-                  //■変更後(回転後)の左上座標を計算
-                  const newMatrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
-                  const newLeftTopPoint = applyToPoint(newMatrix, {x: shape.left, y: shape.top});
-
-                  //■左上座標を調整
-                  shape.left = shape.left - (newLeftTopPoint.x - originalTopPoint.x);
-                  shape.top = shape.top - (newLeftTopPoint.y - originalTopPoint.y);
-          
-
-                  break;
-                case "w-resize":
-                  if(targetShape.width + (difference.x * -1) >= MIN_SHAPE_SIZE){
-                    shape.width = targetShape.width + (difference.x * -1);
-                  }
-
-                  // //■変更後の正しい左下の座標(回転後)を計算
-                  // const newMatrix = compose(rotateDEG(shape.angle * -1, shape.left + shape.width / 2, shape.top + shape.height / 2));
-                  // const newRoutatedRightBottomPoint = applyToPoint(newMatrix, {x: shape.left + shape.width, y: shape.top + shape.height});
-                  // //■変更前の左下の座標(回転後)との差分から、あるべき左上座標(回転後)を計算
-                  // const newRoutatedLeftTopPoint = {x: routatedLeftTopPoint.x - (newRoutatedRightBottomPoint.x - routatedRightBottomPoint.x), y: routatedLeftTopPoint.y - (newRoutatedRightBottomPoint.y - routatedRightBottomPoint.y)};
-                  // //■回転を戻してあるべき左上座標を計算
-                  // const reverseMatrix = compose(rotateDEG(shape.angle, newRoutatedLeftTopPoint.x + shape.width / 2, newRoutatedLeftTopPoint.y + shape.height / 2));
-                  // const newLeftTopPoint = applyToPoint(reverseMatrix, newRoutatedLeftTopPoint);
-                  // shape.left = newLeftTopPoint.x;
-                  // shape.top = newLeftTopPoint.y;
-
+                })(),   
                 
-
-                  break;
               }
+
+              //■サイズの変更
+              if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
+                shape.width = targetShape.width + difference.x;
+              }
+              if(targetShape.height + difference.y >= MIN_SHAPE_SIZE){
+                shape.height = targetShape.height + difference.y;
+              }
+
+              //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
+              shape.left = shape.left + (executeCommandInfo.current.type === "nw-resize" || executeCommandInfo.current.type === "w-resize" || executeCommandInfo.current.type === "sw-resize" ? difference.x : 0);
+              shape.top = shape.top + (executeCommandInfo.current.type === "nw-resize" || executeCommandInfo.current.type === "n-resize" || executeCommandInfo.current.type === "ne-resize" ? difference.y : 0);
+
+              //■回転後のオリジナルの差分確認用の座標を得る
+              const routatedOriginalPoint = (() => {
+                const matrix = compose(rotateDEG(targetShape.angle, targetShape.left + targetShape.width / 2, targetShape.top + targetShape.height / 2));
+                const point = (() => {
+                  switch(executeCommandInfo.current.type){
+                    case "nw-resize": return {x: targetShape.left + targetShape.width, y: targetShape.top + targetShape.height};
+                    case "n-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
+                    case "ne-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
+                    case "e-resize": return{x: targetShape.left, y: targetShape.top};
+                    case "se-resize": return{x: targetShape.left, y: targetShape.top};
+                    case "s-resize": return{x: targetShape.left, y: targetShape.top};
+                    case "sw-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
+                    case "w-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
+                    default: throw Error();
+                  }
+                })();
+                return applyToPoint(matrix, point);
+              })();
+
+              //■回転後の差分確認用の座標を得る
+              const routatedNewPoint = (() => {
+                const matrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
+                const point = (() => {
+                  switch(executeCommandInfo.current.type){
+                    case "nw-resize": return {x: shape.left + shape.width, y: shape.top + shape.height};
+                    case "n-resize": return {x: shape.left, y: shape.top + shape.height};
+                    case "ne-resize": return {x: shape.left, y: shape.top + shape.height};
+                    case "e-resize": return{x: shape.left, y: shape.top};
+                    case "se-resize": return{x: shape.left, y: shape.top};
+                    case "s-resize": return{x: shape.left, y: shape.top};
+                    case "sw-resize": return{x: shape.left + shape.width, y: shape.top};
+                    case "w-resize": return{x: shape.left + shape.width, y: shape.top};
+                    default: throw Error();
+                  }
+                })();
+                return applyToPoint(matrix, point);
+              })();
+
+              //■回転による左上座標を調整
+              shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
+              shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
+               
+
               break;
             case "rotate":
               const center = {x: shape.left + (shape.width / 2), y: shape.top + (shape.height / 2)};
