@@ -47,11 +47,14 @@ function App() {
       </div>
       <div>{/* コンテンツ  */}
         <div> {/* tools */}
+          vcvcv
         </div>
         <Drawing 
           shapeDrivers={[
             rectDriver,
           ]}
+          width={500}
+          height={500}
           shapes={shapes}
           onChanged={e => {
             setShapes([...shapes.map(shape => {

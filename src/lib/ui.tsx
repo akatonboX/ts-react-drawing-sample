@@ -27,6 +27,8 @@ function _Drawing(
   props: {
     shapes: Shape[],
     shapeDrivers: ShapeDriver[],
+    width: number;
+    height: number;
     onChanged: (e: {
      changedValues: Shape[],
     }) => void,
@@ -34,8 +36,22 @@ function _Drawing(
   ref: React.Ref<DrawingController>
 ) {
   const [logPoint, setLogPoint] = React.useState<{x: number, y:number,color: string}[]>([])
-  const svgElementRef = React.useRef<SVGSVGElement>(null);
+
+  const rootElementRef = React.useRef<HTMLDivElement>(null);
+  // const svgElementRef = React.useRef<SVGSVGElement>(null);
+  const canvasRectElementRef = React.useRef<SVGRectElement>(null);
+
+  //■rootElementのサイズ
+  const [rootElementSize, setRootElementSize] = React.useState({width: 100, height: 100});
   
+  //■SVGのviewbox計算
+  const [minX, minY, width, height] = (() => {
+    const defaultMargin = 100;
+    const xMargin = rootElementSize.width > props.width + defaultMargin ? rootElementSize.width - props.width : defaultMargin;
+    const yMargin = rootElementSize.height > props.height + defaultMargin ? rootElementSize.height - props.height : defaultMargin;
+    return [(xMargin / 2) * -1, (yMargin / 2) * -1, xMargin + props.width, yMargin + props.height];
+  })();
+
   //■選択されたshapeのクローンを取得する
   const [_selection, _setSelected] = React.useState<Shape[]>([]);
   const clonedSelection = _selection.map(item => lodash.cloneDeep(item));
@@ -79,12 +95,12 @@ function _Drawing(
       //■ドラッグ中の場合、サイズ変更などを行う
       if(executeCommandInfo.current != null){
         //■現在のマウスのクライアント座標を変換
-        if(svgElementRef.current == null)throw Error();
+        if(canvasRectElementRef.current == null)throw Error();
 
         //■マウスの座標をSVGの座標系に変換
-        const svgRect = svgElementRef.current.getBoundingClientRect();
-        const startPoint = {x: executeCommandInfo.current.startPoint.x - svgRect.left, y: executeCommandInfo.current.startPoint.y - svgRect.top}
-        const currentPoint = {x: event.clientX - svgRect.left, y: event.clientY- svgRect.top}
+        const canvasRect = canvasRectElementRef.current.getBoundingClientRect();
+        const startPoint = {x: executeCommandInfo.current.startPoint.x - canvasRect.left, y: executeCommandInfo.current.startPoint.y - canvasRect.top}
+        const currentPoint = {x: event.clientX - canvasRect.left, y: event.clientY- canvasRect.top}
 
         //■座標の変化をshapeに反映
         for(const shape of selection.shapes){
@@ -196,7 +212,6 @@ function _Drawing(
               //■回転による左上座標を調整
               shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
               shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
-               
 
               break;
             case "rotate":
@@ -205,13 +220,7 @@ function _Drawing(
 
               const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
               const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
-              shape.angle = (targetShape?.angle ?? 0) + (mouseRadian - startRadian) * (180 / Math.PI); 
-              // setLogPoint([
-              //   {x: center.x, y: center.y, color: "red"},
-              //   {x: start.x, y: start.y, color: "blue"},
-              //   {x: mousePoint.x, y: mousePoint.y, color: "green"},
-              // ]);
-
+              shape.angle = (targetShape?.angle ?? 0) + ((mouseRadian - startRadian) * 180) / Math.PI; 
               break;
           }
         }
@@ -227,7 +236,7 @@ function _Drawing(
 
   //■マウスの編集を始める
   const startEdit: StartEdit = (x, y, command) => {
-    if(svgElementRef.current == null)throw Error();
+    if(canvasRectElementRef.current == null)throw Error();
     executeCommandInfo.current = {
       type: command,
       startPoint: {x: x, y: y},
@@ -246,13 +255,49 @@ function _Drawing(
       },
     };
   });
+
+  //■rootElementのサイズをトラッキングし、変更した場合stateに反映
+  React.useEffect(() => {
+    const rootElement = rootElementRef.current;
+    if(rootElement != null){
+      const resizeObserver = new ResizeObserver(entries => {
+        if(entries.length > 0){
+          console.log("★", entries[0].contentRect)
+          setRootElementSize({width: entries[0].contentRect.width, height: entries[0].contentRect.height});
+        }
+      });
+      resizeObserver.observe(rootElement);
+      return () => {
+        resizeObserver.unobserve(rootElement);
+      };
+    }
+    
+    
+  },[rootElementRef.current]);
+
+
+
   return (
-    <div className={styles.root}>
-      <svg ref={svgElementRef} width="500" height="500" onClick={e => {selection.clear();}} >
-        <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit}/>
-        <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} />
-        {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
-      </svg>
+    <div className={styles.root} ref={rootElementRef}>
+      <div>{/* スクロール */}
+        <svg onClick={e => {selection.clear();}} viewBox={`${minX} ${minY} ${width} ${height}`} >
+          <rect //背景
+            x={minX} 
+            y={minY} 
+            width={width} 
+            height={height} 
+            fill="gray" />
+          <rect ref={canvasRectElementRef} //キャンパス
+            x={0} 
+            y={0} 
+            width={props.width} 
+            height={props.height} 
+            fill="white" />
+          <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit}/>
+          <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} />
+          {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
+        </svg>
+      </div>
     </div>
   )
 }
@@ -347,7 +392,7 @@ export function Editor(
             <DragPoint left={item.left + (item.width / 2)} top={item.top + item.height} commnad="s-resize" startEdit={props.startEdit}/>
             <DragPoint left={item.left} top={item.top + item.height} commnad="sw-resize" startEdit={props.startEdit}/>
             <DragPoint left={item.left} top={item.top + (item.height / 2)} commnad="w-resize" startEdit={props.startEdit}/>
-            <svg x={item.left + (item.width / 2) - (iconSize / 2)} y={item.top - (iconSize + 30)} viewBox="0 0 512 512">
+            <svg x={item.left + (item.width / 2) - (iconSize / 2)} y={item.top - (iconSize + 30)} >
               <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
 		c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
 		c-20.906,0-40.566-4.663-58.197-12.856c-3.689-1.709-7.218-3.57-10.636-5.606c-3.514-1.996-6.868-4.184-10.094-6.452
@@ -357,7 +402,7 @@ export function Editor(
 		c29.897,13.951,63.244,21.792,98.475,21.848c128.706-0.08,232.93-104.304,232.946-233.002
 		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
             </svg>
-            <circle r={iconSize / 2} cx={item.left + (item.width / 2)} cy={item.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01"  style={{cursor: "move"}}  onMouseDown={e => {props.startEdit(e.clientX, e.clientY, "rotate")} } />
+            <circle r={iconSize / 2} cx={item.left + (item.width / 2)} cy={item.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01"  style={{cursor: "move"}}  onMouseDown={e => {props.startEdit(e.clientX, e.clientY, "rotate")} } />            {/* 回転のマウス操作を受け入れるための透明な円 */}
             <line x1={item.left + (item.width / 2)} y1={item.top - 30} x2={item.left + (item.width / 2)}  y2={item.top}  stroke="black" strokeWidth={1} />
           </g>
         );
