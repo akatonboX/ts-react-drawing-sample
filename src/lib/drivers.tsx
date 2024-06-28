@@ -4,9 +4,9 @@ export const rectDriver: ShapeDriver = {
   accept: (shape: Shape) => shape.type === "rect",
   viewerComponent: (props) => {
     return <rect 
-            onClick={e => {props.onClick(props.shape, e);}} 
-            onContextMenu={e => {props.onContextMenu(props.shape, e);}} 
-            onMouseDown={e => {props.onMousedown(props.shape, e);}} 
+            onClick={e => {props.onClick(props.shape.id, e);}} 
+            onContextMenu={e => {props.onContextMenu(props.shape.id, e);}} 
+            onMouseDown={e => {props.onMousedown(props.shape.id, e);}} 
             x={props.shape.left} 
             y={props.shape.top} 
             width={props.shape.width} 

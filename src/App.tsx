@@ -6,6 +6,7 @@ import { rectDriver } from './lib/drivers';
 import { Drawing, Viewer } from './lib/ui';
 import { applyToPoint, compose, rotate, rotateDEG, scale, translate } from 'transformation-matrix';
 import styles from "./App.module.scss";
+import { Slider } from '@mui/material';
 function App() {
   const [shapes, setShapes] = React.useState([
     {
@@ -32,6 +33,7 @@ function App() {
       angle: 45,
     },
   ]);
+  const [zoom, setZoom] = React.useState(100);
   return (
     <div className={styles.root} style={{border: "solid 1px black"}}>
       <div> {/* ヘッダ */}
@@ -47,7 +49,17 @@ function App() {
       </div>
       <div>{/* コンテンツ  */}
         <div> {/* tools */}
-          vcvcv
+          <div>{/* 左詰め */}
+
+          </div>
+          <div />{/* 中央 */}
+          <div>{/* 左詰め */}
+            <div style={{width:100}}>
+              <Slider value={zoom} max={200} min={20} onChange={(e, newValue) => {setZoom(newValue as number); console.log("★1", newValue)}} />
+            </div>
+            <div>{zoom}%</div>
+          </div>
+          
         </div>
         <Drawing 
           shapeDrivers={[
@@ -55,6 +67,7 @@ function App() {
           ]}
           width={500}
           height={500}
+          zoom={zoom}
           shapes={shapes}
           onChanged={e => {
             setShapes([...shapes.map(shape => {

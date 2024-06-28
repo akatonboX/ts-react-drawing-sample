@@ -14,10 +14,23 @@
     box-sizing: border-box;
     > :first-child{//tools
       flex: 0 0 0;
+      display: flex;
+      > :first-child{//左詰め
+        flex: 0 0 0;
+        display: flex;
+        justify-content: flex-start;
+      }
+      > :nth-child(2){//中央
+        flex: 1 0 0;
+      }
+      > :last-child{//右詰め
+        flex: 0 0 0;
+        display: flex;
+        justify-content: flex-end;
+      }
     }
     > :nth-child(2){//コンテンツ
       flex: 1 0 0;
-
     }
   }
   > :last-child{//フッタ

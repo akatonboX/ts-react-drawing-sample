@@ -12,7 +12,7 @@ export interface Shape{
   angle: number;
 }
 
-export type ShapeMouseEventHandler = (shape: Shape, mouseEvent: React.MouseEvent) => void;
+export type ShapeMouseEventHandler = (shapeId: string, mouseEvent: React.MouseEvent) => void;
 // export type Drawer = React.FC<{
 //   shape: Shape
 //   onClick: ShapeMouseEvent;
