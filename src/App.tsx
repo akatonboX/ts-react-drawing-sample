@@ -7,6 +7,7 @@ import { Drawing, Viewer } from './lib/ui';
 import { applyToPoint, compose, rotate, rotateDEG, scale, translate } from 'transformation-matrix';
 import styles from "./App.module.scss";
 import { Slider } from '@mui/material';
+import { ExpandableLayout } from './component/expandableLayout';
 function App() {
   const [shapes, setShapes] = React.useState([
     {
@@ -50,12 +51,14 @@ function App() {
       <div>{/* コンテンツ  */}
         <div> {/* tools */}
           <div>{/* 左詰め */}
-
+            <ExpandableLayout popup={<>aaaa</>}>
+              aaa
+            </ExpandableLayout>
           </div>
           <div />{/* 中央 */}
           <div>{/* 左詰め */}
             <div style={{width:100}}>
-              <Slider value={zoom} max={200} min={20} onChange={(e, newValue) => {setZoom(newValue as number); console.log("★1", newValue)}} />
+              <Slider value={zoom} max={200} min={20} onChange={(e, newValue) => {setZoom(newValue as number);}} />
             </div>
             <div>{zoom}%</div>
           </div>

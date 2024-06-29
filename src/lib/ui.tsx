@@ -48,23 +48,34 @@ function _Drawing(
   },
   ref: React.Ref<DrawingController>
 ) {
-  //■zoomを反映した値
-  const zoom = props.zoom == null ? 1 : props.zoom / 100;
-  const [canvasWidth, canvasHeight] = [props.width * zoom, props.height * zoom];
   const [logPoint, setLogPoint] = React.useState<{x: number, y:number,color: string}[]>([])
 
+  //■elementの保持
   const rootElementRef = React.useRef<HTMLDivElement>(null);
   const canvasRectElementRef = React.useRef<SVGRectElement>(null);
 
   //■rootElementのサイズ
   const [rootElementSize, setRootElementSize] = React.useState({width: 100, height: 100});
   
-  //■SVGのviewbox計算
-  const [minX, minY, width, height] = (() => {
+  //■SVGの実際のサイズ(zoomeを加味)を計算
+  const [zoom, svgSize] = (() => {
+    const zoom = props.zoom == null ? 1 : props.zoom / 100;//パラメータをrateの変換
+    const [documentWidth, documentHeight] = [props.width * zoom, props.height * zoom];//指定されたドキュメントの大きさにzoomeを加味。
     const defaultMargin = 100;
-    const xMargin = rootElementSize.width > canvasWidth + defaultMargin ? rootElementSize.width - canvasWidth : defaultMargin;
-    const yMargin = rootElementSize.height > canvasHeight + defaultMargin ? rootElementSize.height - canvasHeight : defaultMargin;
-    return [(xMargin / 2) * -1, (yMargin / 2) * -1, xMargin + canvasWidth, yMargin + canvasHeight];
+    const xMargin = rootElementSize.width > documentWidth + defaultMargin ? rootElementSize.width - documentWidth : defaultMargin;
+    const yMargin = rootElementSize.height > documentHeight + defaultMargin ? rootElementSize.height - documentHeight : defaultMargin;
+    // return [(xMargin / 2) * -1, (yMargin / 2) * -1, xMargin + documentWidth, yMargin + documentHeight];
+    return [
+      zoom, 
+      {
+        minX: (xMargin / 2) * -1,//SVGの左上のX座標。(0はマージンを除く編集領域音開始座標になるので、左上は負数)
+        minY:  (yMargin / 2) * -1,//SVGの左上のY座標。(0はマージンを除く編集領域音開始座標になるので、左上は負数)
+        width: xMargin + documentWidth,//SVGの幅。(マージンを含む)
+        height: yMargin + documentHeight,//SGVの高さ(マージンを含む)
+        documentWidth: documentWidth,//マージンを含まないドキュメントサイズ
+        documentHeight: documentHeight,//マージンを含まないドキュメントサイズ
+      }
+    ];
   })();
 
   //■選択されたshapeのクローンを取得する
@@ -294,18 +305,18 @@ function _Drawing(
   return (
     <div className={styles.root} ref={rootElementRef}>
       <div>{/* スクロール */}
-        <svg width={width} height={height} onClick={e => {selection.clear();}} viewBox={`${minX} ${minY} ${width} ${height}`} >
+        <svg width={svgSize.width} height={svgSize.height} onClick={e => {selection.clear();}} viewBox={`${svgSize.minX} ${svgSize.minY} ${svgSize.width} ${svgSize.height}`} >
           <rect //背景
-            x={minX} 
-            y={minY} 
-            width={width} 
-            height={height} 
+            x={svgSize.minX} 
+            y={svgSize.minY} 
+            width={svgSize.width} 
+            height={svgSize.height} 
             fill="gray" />
           <rect ref={canvasRectElementRef} //キャンパス
             x={0} 
             y={0} 
-            width={canvasWidth} 
-            height={canvasHeight} 
+            width={svgSize.documentWidth} 
+            height={svgSize.documentHeight} 
             fill="white" />
           <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} zoom={zoom}/>
           <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} zoom={zoom} />

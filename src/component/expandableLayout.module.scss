@@ -1,11 +1,8 @@
-@use "../style";
-
 .root{
   display: flex;
   flex-direction: column;
 
   > div:first-of-type{//入力部
-    @include style.inputBase;
     display: flex;
     align-items: center;
     > :first-child{//入力コンポーネント
@@ -21,6 +18,7 @@
     height: 0px;
     > :last-child{
       position: absolute;
+      z-index: 1;
       background-color: white;
       border: 1px solid black;
       padding: 5px;
