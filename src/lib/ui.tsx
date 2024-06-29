@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { MouseEventHandler } from 'react';
 import lodash from 'lodash';
 import { Shape, ShapeDriver, ShapeMouseEventHandler } from './core';
 import { clientToDrawingPoint } from './util';
 import { applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
+import { off } from 'process';
 const MIN_SHAPE_SIZE = 30;
 interface Selection{
   shapes: Shape[];
@@ -13,7 +14,24 @@ interface Selection{
   save: () => void;
 }
 
-type StartEdit = (x: number, y: number, command: string) => void;
+class MouseEventConnector{
+  private handlers: ShapeMouseEventHandler[] = [];
+  addListener(handler: ShapeMouseEventHandler){
+    this.handlers.push(handler);
+  }
+  removeListener(handler: ShapeMouseEventHandler){
+    this.handlers = [...this.handlers.filter(item => item !== handler)];
+  }
+  execute: ShapeMouseEventHandler = (shapeId, mouseEvent) => {
+    this.handlers.forEach(item => {item(shapeId, mouseEvent);})
+  }
+}
+interface MouseEventConnectorManger{
+  onClick: MouseEventConnector;
+  onContextMenu: MouseEventConnector;
+  onMousedown: MouseEventConnector;
+}
+// type StartEdit = (x: number, y: number, command: string) => void;
 
 export interface DrawingController{
   shapes: Shape[];
@@ -50,9 +68,15 @@ function _Drawing(
 ) {
   const [logPoint, setLogPoint] = React.useState<{x: number, y:number,color: string}[]>([])
 
+  const mouseEventConnectorManger = React.useRef<MouseEventConnectorManger>({
+    onClick: new MouseEventConnector(),
+    onContextMenu: new MouseEventConnector(),
+    onMousedown: new MouseEventConnector(),
+  });
+  
   //■elementの保持
   const rootElementRef = React.useRef<HTMLDivElement>(null);
-  const canvasRectElementRef = React.useRef<SVGRectElement>(null);
+  const documentRectElementRef = React.useRef<SVGRectElement>(null);
 
   //■rootElementのサイズ
   const [rootElementSize, setRootElementSize] = React.useState({width: 100, height: 100});
@@ -93,43 +117,224 @@ function _Drawing(
     save: () => {_setSelected(clonedSelection);},
   }
 
-  //■コマンドの実行状態
+  //■refを登録
+  React.useImperativeHandle(ref, () => {
+    return {
+      shapes: props.shapes,
+      selectedShapes: selection.shapes,
+      select: (shapes: Shape[]) => {selection.set([...shapes.map(item => lodash.cloneDeep(item))]);},
+      addShape: (shape: Shape) => {
+        selection.set([lodash.cloneDeep(shape)]);
+      },
+    };
+  });
+
+  //■rootElementのサイズをトラッキングし、変更した場合stateに反映
+  React.useEffect(() => {
+    const rootElement = rootElementRef.current;
+    if(rootElement != null){
+      const resizeObserver = new ResizeObserver(entries => {
+        if(entries.length > 0){
+          setRootElementSize({width: entries[0].contentRect.width, height: entries[0].contentRect.height});
+        }
+      });
+      resizeObserver.observe(rootElement);
+      return () => {
+        resizeObserver.unobserve(rootElement);
+      };
+    }   
+  },[rootElementRef.current]);
+
+  return (
+    <div className={styles.root} ref={rootElementRef}>
+      <div>{/* スクロール */}
+        <svg width={svgSize.width} height={svgSize.height} onClick={e => {selection.clear();}} viewBox={`${svgSize.minX} ${svgSize.minY} ${svgSize.width} ${svgSize.height}`} >
+          <rect //背景
+            x={svgSize.minX} 
+            y={svgSize.minY} 
+            width={svgSize.width} 
+            height={svgSize.height} 
+            fill="gray" />
+          <rect ref={documentRectElementRef} //キャンパス
+            x={0} 
+            y={0} 
+            width={svgSize.documentWidth} 
+            height={svgSize.documentHeight} 
+            fill="white" />
+          <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom}/>
+          {documentRectElementRef.current != null ?
+            <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
+            : <></>
+          }
+          {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
+        </svg>
+      </div>
+    </div>
+  )
+}
+export const Drawing = React.forwardRef(_Drawing);
+
+export function Viewer(
+  props: {
+    shapes: Shape[],
+    shapeDrivers: ShapeDriver[],
+    selection: Selection,
+    // startEdit: StartEdit,
+    mouseEventConnectorManger: MouseEventConnectorManger,
+    zoom: number,
+  }
+) {
+   
+  return (
+    <>
+      {props.shapes.map(shape => {
+        const driver = props.shapeDrivers.find(item => item.accept(shape));
+        if(driver != null){
+          const Component = driver.viewerComponent;
+          const selectedTarget = props.selection.shapes.find(item => item.id === shape.id);
+          const zoomedShape = createZoomedShape(selectedTarget != null ? selectedTarget : shape, props.zoom);
+          
+          return (
+            <g key={shape.id} style={{cursor: selectedTarget != null ? "move" : undefined}} >
+              <Component    
+                shape={zoomedShape} 
+                onClick={(shapeId, e) => {props.mouseEventConnectorManger.onClick.execute(shapeId, e)}}
+                onContextMenu={(shapeId, e) => {props.mouseEventConnectorManger.onContextMenu.execute(shapeId, e)}}
+                onMousedown={(shapeId, e) => {props.mouseEventConnectorManger.onMousedown.execute(shapeId, e)}}
+              />
+            </g>
+          );
+        }
+        else{
+          return <None key={shape.id} />;
+        }
+      })}
+    </>
+  );
+}
+
+function None(
+  props: {
+  }
+) {
+  return <></>;
+}
+
+export function Editor(
+  props: {
+    shapes: Shape[],
+    shapeDrivers: ShapeDriver[],
+    selection: Selection,
+    // startEdit: StartEdit,
+    mouseEventConnectorManger: MouseEventConnectorManger,
+    zoom: number;
+    documentElementRect: {
+      top: number,
+      left: number,
+      width: number,
+      height: number,
+    }
+    onChanged: (e: {
+      changedValues: Shape[],
+    }) => void,
+    
+  }
+) {
+  //■操作の実行状態
   const executeCommandInfo = React.useRef<null | {
     type: string,
     startPoint: {x: number, y: number},
   }>(null);
-
-  //■マウス操作のイベント
+  const startEdit = (startX: number, startY: number, command: string) => {
+    executeCommandInfo.current = {
+      type: command,
+      startPoint: {x: startX, y: startY},
+    }
+  }
+  //■ShapeにonMousedownのイベント登録
   React.useEffect(() => {
-    const mouseupHandler = (event: MouseEvent) => {
+    const onMousedownHandler: ShapeMouseEventHandler = (shapeId, e) => {
+      if(executeCommandInfo.current == null){
+        e.stopPropagation();
+
+        //■対象のshpaeが未選択の場合、対象のshapeを選択に含める。
+        if(props.selection.shapes.find(item => item.id === shapeId) == null){
+          const targetShape = props.shapes.find(item => item.id === shapeId);
+          if(targetShape == null)throw Error(`idが存在しない。id=${shapeId}`);
+          if(e.shiftKey){
+            props.selection.append([targetShape]);
+          }
+          else{
+            props.selection.set([targetShape]);
+          }
+        }
+        
+        //■移動の開始
+        startEdit(e.clientX, e.clientY, "move");
+      }
+    };
+    props.mouseEventConnectorManger.onMousedown.addListener(onMousedownHandler);
+
+    return () => {
+      props.mouseEventConnectorManger.onMousedown.removeListener(onMousedownHandler);
+    };
+  }, [props.shapes, props.selection]);
+  //■ShapeにonClickのイベント登録
+  React.useEffect(() => {
+    const onClickHandler: ShapeMouseEventHandler = (shapeId, e) => {
+      e.stopPropagation();
+    };
+    props.mouseEventConnectorManger.onClick.addListener(onClickHandler);
+
+    return () => {
+      props.mouseEventConnectorManger.onClick.removeListener(onClickHandler);
+    };
+  }, []);
+  //■ShapeにonContextMenuのイベント登録
+  React.useEffect(() => {
+    const onContextMenuHandler: ShapeMouseEventHandler = (shapeId, e) => {
+      e.stopPropagation();
+    };
+    props.mouseEventConnectorManger.onContextMenu.addListener(onContextMenuHandler);
+
+    return () => {
+      props.mouseEventConnectorManger.onContextMenu.removeListener(onContextMenuHandler);
+    };
+  }, []);
+
+  //■mouseupイベントの登録
+  React.useEffect(() => {
+    const onMouseUpHandler = (event: MouseEvent) => {
       if(executeCommandInfo.current != null){
         //■コマンドを終了する
         executeCommandInfo.current = null;
 
         //■onChangeイベントを発生
-        props.onChanged({changedValues: selection.shapes});
+        props.onChanged({changedValues: props.selection.shapes});
         
         //■selectionを新しいオブジェクトに差し替え
-        // _setSelected([...selection.shapes]);
-        selection.save();
+        props.selection.save();
       }
      
     };
-    window.addEventListener('mouseup', mouseupHandler);
+    window.addEventListener('mouseup', onMouseUpHandler);
+    return () => {
+      window.removeEventListener('mouseup', onMouseUpHandler);
+    };
+  }, [props.selection]);
 
-    const mousemoveHandler = (event: MouseEvent) => {
+  //■mousemoveイベントの登録
+  React.useEffect(() => {
+    const onMouseMoveHandler = (event: MouseEvent) => {
       //■ドラッグ中の場合、サイズ変更などを行う
       if(executeCommandInfo.current != null){
-        //■現在のマウスのクライアント座標を変換
-        if(canvasRectElementRef.current == null)throw Error();
 
         //■マウスの座標をSVGの座標系に変換(zoomを加味)
-        const canvasRect = canvasRectElementRef.current.getBoundingClientRect();
-        const startPoint = {x: (executeCommandInfo.current.startPoint.x - canvasRect.left) / zoom, y: (executeCommandInfo.current.startPoint.y - canvasRect.top) / zoom}
-        const currentPoint = {x: (event.clientX - canvasRect.left) / zoom, y: (event.clientY- canvasRect.top) / zoom}
+        const startPoint = {x: (executeCommandInfo.current.startPoint.x - props.documentElementRect.left) / props.zoom, y: (executeCommandInfo.current.startPoint.y - props.documentElementRect.top) / props.zoom}
+        const currentPoint = {x: (event.clientX - props.documentElementRect.left) / props.zoom, y: (event.clientY- props.documentElementRect.top) / props.zoom}
 
         //■座標の変化をshapeに反映
-        for(const shape of selection.shapes){
+        for(const shape of props.selection.shapes){
           //■対象のshapeを取得
           const targetShape = props.shapes.find(item => item.id === shape.id);
           if(targetShape == null)break;        
@@ -250,163 +455,15 @@ function _Drawing(
               break;
           }
         }
-        selection.save();
+        props.selection.save();
       }
     };
-    window.addEventListener('mousemove', mousemoveHandler);
+    window.addEventListener('mousemove', onMouseMoveHandler);
     return () => {
-      window.removeEventListener('mouseup', mouseupHandler);
-      window.removeEventListener('mousemove', mousemoveHandler);
+      window.removeEventListener('mousemove', onMouseMoveHandler);
     };
-  }, [_selection]);
+  }, [props.selection, props.documentElementRect.left, props.documentElementRect.top, props.zoom]);
 
-  //■マウスの編集を始める
-  const startEdit: StartEdit = (x, y, command) => {
-    if(canvasRectElementRef.current == null)throw Error();
-    executeCommandInfo.current = {
-      type: command,
-      startPoint: {x: x, y: y},
-    }
-  }
-
-  //■refを登録
-  React.useImperativeHandle(ref, () => {
-    return {
-      shapes: props.shapes,
-      selectedShapes: selection.shapes,
-      select: (shapes: Shape[]) => {selection.set([...shapes.map(item => lodash.cloneDeep(item))]);},
-      addShape: (shape: Shape) => {
-        selection.set([lodash.cloneDeep(shape)]);
-        
-      },
-    };
-  });
-
-  //■rootElementのサイズをトラッキングし、変更した場合stateに反映
-  React.useEffect(() => {
-    const rootElement = rootElementRef.current;
-    if(rootElement != null){
-      const resizeObserver = new ResizeObserver(entries => {
-        if(entries.length > 0){
-          setRootElementSize({width: entries[0].contentRect.width, height: entries[0].contentRect.height});
-        }
-      });
-      resizeObserver.observe(rootElement);
-      return () => {
-        resizeObserver.unobserve(rootElement);
-      };
-    }
-    
-    
-  },[rootElementRef.current]);
-
-
-
-  return (
-    <div className={styles.root} ref={rootElementRef}>
-      <div>{/* スクロール */}
-        <svg width={svgSize.width} height={svgSize.height} onClick={e => {selection.clear();}} viewBox={`${svgSize.minX} ${svgSize.minY} ${svgSize.width} ${svgSize.height}`} >
-          <rect //背景
-            x={svgSize.minX} 
-            y={svgSize.minY} 
-            width={svgSize.width} 
-            height={svgSize.height} 
-            fill="gray" />
-          <rect ref={canvasRectElementRef} //キャンパス
-            x={0} 
-            y={0} 
-            width={svgSize.documentWidth} 
-            height={svgSize.documentHeight} 
-            fill="white" />
-          <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} zoom={zoom}/>
-          <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} startEdit={startEdit} zoom={zoom} />
-          {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
-        </svg>
-      </div>
-    </div>
-  )
-}
-export const Drawing = React.forwardRef(_Drawing);
-
-export function Viewer(
-  props: {
-    shapes: Shape[],
-    shapeDrivers: ShapeDriver[],
-    selection: Selection,
-    startEdit: StartEdit,
-    zoom: number,
-  }
-) {
-  const onClick: ShapeMouseEventHandler = (shapeId, e) => {
-    e.stopPropagation();
-  };
-  const onContextMenu: ShapeMouseEventHandler = (shapeId, e) => {
-    e.stopPropagation();
-  };
-  const onMousedownWithNoSelectedShape: ShapeMouseEventHandler = (shapeId, e) => {
-    //■shapeの取得
-    const shape = props.shapes.find(item => item.id === shapeId);
-    if(shape == null)return;
-    //■選択の変更
-    if(e.shiftKey){
-      props.selection.append([shape]);
-    }
-    else{
-      props.selection.set([shape]);
-    }
-    //■移動の開始
-    props.startEdit(e.clientX, e.clientY, "move");
-  };
-  const onMousedownWithSelectedShape: ShapeMouseEventHandler = (shapeId, e) => {
-    //■移動の開始
-    props.startEdit(e.clientX, e.clientY, "move");
-  };
-  return (
-    <>
-      {props.shapes.map(shape => {
-        const driver = props.shapeDrivers.find(item => item.accept(shape));
-        if(driver != null){
-          const Component = driver.viewerComponent;
-          const selectedTarget = props.selection.shapes.find(item => item.id === shape.id);
-          const zoomedShape = createZoomedShape(selectedTarget != null ? selectedTarget : shape, props.zoom);
-          
-          return (
-            <g key={shape.id} style={{cursor: selectedTarget != null ? "move" : undefined}} >
-              <Component    
-                shape={zoomedShape} 
-                onClick={onClick}
-                onContextMenu={onContextMenu}
-                onMousedown={selectedTarget != null ? onMousedownWithSelectedShape : onMousedownWithNoSelectedShape}
-              />
-            </g>
-          );
-        }
-        else{
-          return <None key={shape.id} />;
-        }
-      })}
-    </>
-  );
-}
-
-function None(
-  props: {
-  }
-) {
-  return <></>;
-}
-
-export function Editor(
-  props: {
-    shapes: Shape[],
-    shapeDrivers: ShapeDriver[],
-    selection: Selection,
-    startEdit: StartEdit,
-    zoom: number;
-    // onChanged: (shapes: Shape[]) => void,
-    
-  }
-) {
   const iconSize = 24;
   return (
     <>
@@ -415,14 +472,14 @@ export function Editor(
         return (
           <g key={zoomedShape.id} transform={`rotate(${zoomedShape.angle}, ${zoomedShape.left + (zoomedShape.width / 2)}, ${zoomedShape.top + (zoomedShape.height / 2)})`} >
             <rect x={zoomedShape.left} y={zoomedShape.top} width={zoomedShape.width} height={zoomedShape.height} fill="none" stroke="#F46860" strokeWidth="1"/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={props.startEdit} />
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={props.startEdit}/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={props.startEdit}/>
+            <DragPoint left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
+            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
+            <DragPoint left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
             <svg x={zoomedShape.left + (zoomedShape.width / 2) - (iconSize / 2)} y={zoomedShape.top - (iconSize + 30)} >
               <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
 		c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
@@ -433,7 +490,8 @@ export function Editor(
 		c29.897,13.951,63.244,21.792,98.475,21.848c128.706-0.08,232.93-104.304,232.946-233.002
 		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
             </svg>
-            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01"  style={{cursor: "move"}}  onMouseDown={e => {props.startEdit(e.clientX, e.clientY, "rotate")} } />            {/* 回転のマウス操作を受け入れるための透明な円 */}
+            {/* 回転のマウス操作を受け入れるための透明な円 */}
+            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate")} } />         
             <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
           </g>
         );
@@ -450,8 +508,7 @@ function DragPoint(
     left: number,
     top: number,
     commnad: resizeCommand,
-    startEdit: StartEdit,
-    // onMouseDown?: React.MouseEventHandler<SVGCircleElement>,
+    startEdit:  (startX: number, startY: number, command: string) => void,
   }
 ){
   return <circle cx={props.left} cy={props.top} r="6" fill="white" stroke="black" strokeWidth="1" style={{cursor: props.commnad}} onMouseDown={e => {
