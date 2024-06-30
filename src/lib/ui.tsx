@@ -219,11 +219,13 @@ function Editor(
   //■操作の実行状態
   const executeCommandInfo = React.useRef<null | {
     type: string,
+    targetShapeId: string,
     startPoint: {x: number, y: number},
   }>(null);
-  const startEdit = (startX: number, startY: number, command: string) => {
+  const startEdit = (startX: number, startY: number, command: string, targetShapeId: string) => {
     executeCommandInfo.current = {
       type: command,
+      targetShapeId: targetShapeId,
       startPoint: {x: startX, y: startY},
     }
   }
@@ -246,7 +248,7 @@ function Editor(
         }
         
         //■移動の開始
-        startEdit(e.clientX, e.clientY, "move");
+        startEdit(e.clientX, e.clientY, "move", shapeId);
       }
     };
     props.mouseEventConnectorManger.onMousedown.addListener(onMousedownHandler);
@@ -309,127 +311,149 @@ function Editor(
         const startPoint = {x: (executeCommandInfo.current.startPoint.x - props.documentElementRect.left) / props.zoom, y: (executeCommandInfo.current.startPoint.y - props.documentElementRect.top) / props.zoom}
         const currentPoint = {x: (event.clientX - props.documentElementRect.left) / props.zoom, y: (event.clientY- props.documentElementRect.top) / props.zoom}
 
+        //■操作したshapeを取得
+        const manipulatedShape = props.selection.shapes.find(item => item.id === executeCommandInfo.current?.targetShapeId);
+        if(manipulatedShape == null)return;
+
+        switch(executeCommandInfo.current.type){
+          case "move":
+            props.selection.shapes.forEach(shape => {
+              const targetShape = props.shapes.find(item => item.id === shape.id);
+              if(targetShape != null){        
+                shape.left = (targetShape?.left ?? 0) + currentPoint.x- startPoint.x;
+                shape.top = (targetShape?.top ?? 0) + currentPoint.y - startPoint.y;
+              }
+            });
+            break;
+
+          case "nw-resize":
+          case "n-resize":
+          case "ne-resize":
+          case "e-resize":
+          case "se-resize":
+          case "s-resize":
+          case "sw-resize":
+          case "w-resize":
+            //■回転後の座標系のマウス座標を、回転前の座標系の座標に変換
+            const [routatedStartPoint, routatedCurrentPoint] = (() => {
+              const matrix = compose(rotateDEG(manipulatedShape.angle * -1, manipulatedShape.left + manipulatedShape.width / 2, manipulatedShape.top + manipulatedShape.height / 2));
+              return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
+            })();
+
+            //■変化の差を得る
+            const difference = {
+              x: (() => {
+                switch(executeCommandInfo.current.type){
+                  case "ne-resize":
+                  case "e-resize":
+                  case "se-resize":
+                    return routatedCurrentPoint.x - routatedStartPoint.x;
+                  case "nw-resize":
+                  case "w-resize": 
+                  case "sw-resize":
+                    return routatedStartPoint.x - routatedCurrentPoint.x;
+                  default: return 0;
+                }
+              })(),               
+              y: (() => {
+                switch(executeCommandInfo.current.type){
+                  case "ne-resize":
+                  case "n-resize":
+                  case "nw-resize":
+                    return  routatedStartPoint.y - routatedCurrentPoint.y;
+                  case "se-resize":
+                  case "s-resize":
+                  case "sw-resize":
+                    return routatedCurrentPoint.y - routatedStartPoint.y;
+                  default: return 0;
+                }
+              })(),   
+              
+            }
+
+            //■すべての選択に対して処理
+            props.selection.shapes.forEach(shape => {
+              const targetShape = props.shapes.find(item => item.id === shape.id);
+              if(targetShape != null){      
+                //■サイズの変更  
+                if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
+                  shape.width = targetShape.width + difference.x;
+                }
+                if(targetShape.height + difference.y >= MIN_SHAPE_SIZE){
+                  shape.height = targetShape.height + difference.y;
+                }
+
+                //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
+                shape.left = shape.left + (executeCommandInfo.current?.type === "nw-resize" || executeCommandInfo.current?.type === "w-resize" || executeCommandInfo.current?.type === "sw-resize" ? difference.x : 0);
+                shape.top = shape.top + (executeCommandInfo.current?.type === "nw-resize" || executeCommandInfo.current?.type === "n-resize" || executeCommandInfo.current?.type === "ne-resize" ? difference.y : 0);
+
+                //■回転後のオリジナルの差分確認用の座標を得る
+                const routatedOriginalPoint = (() => {
+                  const matrix = compose(rotateDEG(targetShape.angle, targetShape.left + targetShape.width / 2, targetShape.top + targetShape.height / 2));
+                  const point = (() => {
+                    switch(executeCommandInfo.current?.type){
+                      case "nw-resize": return {x: targetShape.left + targetShape.width, y: targetShape.top + targetShape.height};
+                      case "n-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
+                      case "ne-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
+                      case "e-resize": return{x: targetShape.left, y: targetShape.top};
+                      case "se-resize": return{x: targetShape.left, y: targetShape.top};
+                      case "s-resize": return{x: targetShape.left, y: targetShape.top};
+                      case "sw-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
+                      case "w-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
+                      default: throw Error();
+                    }
+                  })();
+                  return applyToPoint(matrix, point);
+                })();
+
+                //■回転後の差分確認用の座標を得る
+                const routatedNewPoint = (() => {
+                  const matrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
+                  const point = (() => {
+                    switch(executeCommandInfo.current.type){
+                      case "nw-resize": return {x: shape.left + shape.width, y: shape.top + shape.height};
+                      case "n-resize": return {x: shape.left, y: shape.top + shape.height};
+                      case "ne-resize": return {x: shape.left, y: shape.top + shape.height};
+                      case "e-resize": return{x: shape.left, y: shape.top};
+                      case "se-resize": return{x: shape.left, y: shape.top};
+                      case "s-resize": return{x: shape.left, y: shape.top};
+                      case "sw-resize": return{x: shape.left + shape.width, y: shape.top};
+                      case "w-resize": return{x: shape.left + shape.width, y: shape.top};
+                      default: throw Error();
+                    }
+                  })();
+                  return applyToPoint(matrix, point);
+                })();
+
+                //■回転による左上座標を調整
+                shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
+                shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
+
+              }
+            }); 
+
+            break;
+          case "rotate":
+            const center = {x: manipulatedShape.left + (manipulatedShape.width / 2), y: manipulatedShape.top + (manipulatedShape.height / 2)};
+            const start = {x: startPoint.x, y: startPoint.y};
+
+            const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
+            const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
+            
+            //■すべての選択に対して処理
+            props.selection.shapes.forEach(shape => {
+              const targetShape = props.shapes.find(item => item.id === shape.id);
+              if(targetShape != null){     
+                shape.angle = (targetShape?.angle ?? 0) + ((mouseRadian - startRadian) * 180) / Math.PI; 
+              }
+            });
+           
+            break;
+        }
+
         //■座標の変化をshapeに反映
         for(const shape of props.selection.shapes){
-          //■対象のshapeを取得
-          const targetShape = props.shapes.find(item => item.id === shape.id);
-          if(targetShape == null)break;        
-
-          switch(executeCommandInfo.current.type){
-            case "move":
-              shape.left = (targetShape?.left ?? 0) + currentPoint.x- startPoint.x;
-              shape.top = (targetShape?.top ?? 0) + currentPoint.y - startPoint.y;
-              break;
-
-            case "nw-resize":
-            case "n-resize":
-            case "ne-resize":
-            case "e-resize":
-            case "se-resize":
-            case "s-resize":
-            case "sw-resize":
-            case "w-resize":
-              //■回転後の座標系のマウス座標を、回転前の座標系の座標に変換
-              const [routatedStartPoint, routatedCurrentPoint] = (() => {
-                const matrix = compose(rotateDEG(shape.angle * -1, shape.left + shape.width / 2, shape.top + shape.height / 2));
-                return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
-              })();
-
-              //■変化の差を得る
-              const difference = {
-                x: (() => {
-                  switch(executeCommandInfo.current.type){
-                    case "ne-resize":
-                    case "e-resize":
-                    case "se-resize":
-                      return routatedCurrentPoint.x - routatedStartPoint.x;
-                    case "nw-resize":
-                    case "w-resize": 
-                    case "sw-resize":
-                      return routatedStartPoint.x - routatedCurrentPoint.x;
-                    default: return 0;
-                  }
-                })(),               
-                y: (() => {
-                  switch(executeCommandInfo.current.type){
-                    case "ne-resize":
-                    case "n-resize":
-                    case "nw-resize":
-                      return  routatedStartPoint.y - routatedCurrentPoint.y;
-                    case "se-resize":
-                    case "s-resize":
-                    case "sw-resize":
-                      return routatedCurrentPoint.y - routatedStartPoint.y;
-                    default: return 0;
-                  }
-                })(),   
-                
-              }
-
-              //■サイズの変更
-              if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
-                shape.width = targetShape.width + difference.x;
-              }
-              if(targetShape.height + difference.y >= MIN_SHAPE_SIZE){
-                shape.height = targetShape.height + difference.y;
-              }
-
-              //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
-              shape.left = shape.left + (executeCommandInfo.current.type === "nw-resize" || executeCommandInfo.current.type === "w-resize" || executeCommandInfo.current.type === "sw-resize" ? difference.x : 0);
-              shape.top = shape.top + (executeCommandInfo.current.type === "nw-resize" || executeCommandInfo.current.type === "n-resize" || executeCommandInfo.current.type === "ne-resize" ? difference.y : 0);
-
-              //■回転後のオリジナルの差分確認用の座標を得る
-              const routatedOriginalPoint = (() => {
-                const matrix = compose(rotateDEG(targetShape.angle, targetShape.left + targetShape.width / 2, targetShape.top + targetShape.height / 2));
-                const point = (() => {
-                  switch(executeCommandInfo.current.type){
-                    case "nw-resize": return {x: targetShape.left + targetShape.width, y: targetShape.top + targetShape.height};
-                    case "n-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
-                    case "ne-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
-                    case "e-resize": return{x: targetShape.left, y: targetShape.top};
-                    case "se-resize": return{x: targetShape.left, y: targetShape.top};
-                    case "s-resize": return{x: targetShape.left, y: targetShape.top};
-                    case "sw-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
-                    case "w-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
-                    default: throw Error();
-                  }
-                })();
-                return applyToPoint(matrix, point);
-              })();
-
-              //■回転後の差分確認用の座標を得る
-              const routatedNewPoint = (() => {
-                const matrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
-                const point = (() => {
-                  switch(executeCommandInfo.current.type){
-                    case "nw-resize": return {x: shape.left + shape.width, y: shape.top + shape.height};
-                    case "n-resize": return {x: shape.left, y: shape.top + shape.height};
-                    case "ne-resize": return {x: shape.left, y: shape.top + shape.height};
-                    case "e-resize": return{x: shape.left, y: shape.top};
-                    case "se-resize": return{x: shape.left, y: shape.top};
-                    case "s-resize": return{x: shape.left, y: shape.top};
-                    case "sw-resize": return{x: shape.left + shape.width, y: shape.top};
-                    case "w-resize": return{x: shape.left + shape.width, y: shape.top};
-                    default: throw Error();
-                  }
-                })();
-                return applyToPoint(matrix, point);
-              })();
-
-              //■回転による左上座標を調整
-              shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
-              shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
-
-              break;
-            case "rotate":
-              const center = {x: shape.left + (shape.width / 2), y: shape.top + (shape.height / 2)};
-              const start = {x: startPoint.x, y: startPoint.y};
-
-              const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
-              const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
-              shape.angle = (targetShape?.angle ?? 0) + ((mouseRadian - startRadian) * 180) / Math.PI; 
-              break;
-          }
+          
         }
         props.selection.save();
       }
@@ -448,14 +472,14 @@ function Editor(
         return (
           <g key={zoomedShape.id} transform={`rotate(${zoomedShape.angle}, ${zoomedShape.left + (zoomedShape.width / 2)}, ${zoomedShape.top + (zoomedShape.height / 2)})`} >
             <rect x={zoomedShape.left} y={zoomedShape.top} width={zoomedShape.width} height={zoomedShape.height} fill="none" stroke="#F46860" strokeWidth="1"/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
-            <DragPoint left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
-            <DragPoint left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
+            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
             <svg x={zoomedShape.left + (zoomedShape.width / 2) - (iconSize / 2)} y={zoomedShape.top - (iconSize + 30)} >
               <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
 		c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
@@ -467,7 +491,7 @@ function Editor(
 		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
             </svg>
             {/* 回転のマウス操作を受け入れるための透明な円 */}
-            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate")} } />         
+            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", item.id)} } />         
             <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
           </g>
         );
@@ -481,14 +505,15 @@ type resizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" | "se-r
 
 function DragPoint(
   props: {
+    shapeId: string,
     left: number,
     top: number,
     commnad: resizeCommand,
-    startEdit:  (startX: number, startY: number, command: string) => void,
+    startEdit:  (startX: number, startY: number, command: string, targetShapeId: string) => void,
   }
 ){
   return <circle cx={props.left} cy={props.top} r="6" fill="white" stroke="black" strokeWidth="1" style={{cursor: props.commnad}} onMouseDown={e => {
-    props.startEdit(e.clientX, e.clientY, props.commnad);
+    props.startEdit(e.clientX, e.clientY, props.commnad, props.shapeId);
   }} />
 }
 
