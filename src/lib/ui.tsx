@@ -45,6 +45,18 @@ function createZoomedShape(shape: Shape, zoom: number){
     angle: shape.angle,
   }
 }
+interface MenuItem{
+  label: React.ReactNode;
+  onClick?: (() => void) | (() => Promise<void>);
+}
+interface ContextMenu{
+  position: {
+    left: number;
+    top: number;
+  },
+  menuItems: MenuItem[];
+}
+
 export function Drawing(
   props: {
     shapes: Shape[],
@@ -124,6 +136,10 @@ export function Drawing(
     }   
   },[rootElementRef.current]);
 
+  //■コンテキストメニューの制御
+  const [contextMenu, setContextMenu] = React.useState<ContextMenu | undefined>(undefined);
+
+  
   return (
     <div className={styles.root} ref={rootElementRef}>
       <div>{/* スクロール */}
@@ -142,7 +158,7 @@ export function Drawing(
             fill="white" />
           <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom}/>
           {documentRectElementRef.current != null ?
-            <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
+            <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} setContextMenu={setContextMenu} onChanged={props.onChanged}/>
             : <></>}
           {props.newShape != null && documentRectElementRef.current != null ?
             <Appender shapes={props.shapes} zoom={zoom} newShape={props.newShape} svgSize={svgSize} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
@@ -151,6 +167,21 @@ export function Drawing(
           {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
         </svg>
       </div>
+      {contextMenu != null ?
+        <div className={styles.contextMenu} style={{left: contextMenu.position.left, top: contextMenu.position.top}}>
+          {contextMenu.menuItems.map(menuItem => (
+            <div data-hasClick={menuItem.onClick != null} onClick={async e => {
+              if(menuItem.onClick != null){
+                setContextMenu(undefined);
+                await menuItem.onClick();
+              }
+            }}>
+              <div>{menuItem.label}</div>
+            </div>
+          ))}
+        </div>
+        : <></>
+      }
     </div>
   )
 }
@@ -200,6 +231,7 @@ function None(
   return <></>;
 }
 
+
 function Editor(
   props: {
     shapes: Shape[],
@@ -213,9 +245,11 @@ function Editor(
       width: number,
       height: number,
     },
+    setContextMenu: (contextMenu?: ContextMenu) => void,
     onChanged: (shapes: Shape[]) => void,  
   }
 ) {
+  
   //■操作の実行状態
   const executeCommandInfo = React.useRef<null | {
     type: string,
@@ -271,7 +305,28 @@ function Editor(
   //■ShapeにonContextMenuのイベント登録
   React.useEffect(() => {
     const onContextMenuHandler: ShapeMouseEventHandler = (shapeId, e) => {
-      e.stopPropagation();
+      e.preventDefault();
+      props.setContextMenu({
+        position: {
+          left: e.clientX,
+          top: e.clientY,
+         },
+         menuItems: [
+          {
+            label: "グループ化",
+            onClick: () => {
+              alert("hoge")
+            },
+          },
+          {
+            label: <hr/>,
+          },
+          {
+            label: "ほげほげほげほｇほほほほほほおおはああああああああああああああああああ",
+          }
+         ]
+
+      });
     };
     props.mouseEventConnectorManger.onContextMenu.addListener(onContextMenuHandler);
 
@@ -493,6 +548,7 @@ function Editor(
             {/* 回転のマウス操作を受け入れるための透明な円 */}
             <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", item.id)} } />         
             <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
+
           </g>
         );
       })}

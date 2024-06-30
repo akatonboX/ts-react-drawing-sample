@@ -10,6 +10,7 @@ export interface Shape{
   backgroudColor: string;
   lineColor: string;
   angle: number;
+  groupId?: string;
 }
 
 export type ShapeMouseEventHandler = (shapeId: string, mouseEvent: React.MouseEvent) => void;
