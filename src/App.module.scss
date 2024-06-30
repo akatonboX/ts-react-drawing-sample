@@ -20,6 +20,18 @@
         flex: 0 0 0;
         display: flex;
         justify-content: flex-start;
+
+        > .appendItems{
+          display: flex;
+          > div{
+            width: 32px;
+            height: 32px;
+            margin: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+        }
       }
       > :nth-child(2){//中央
         flex: 1 0 0;

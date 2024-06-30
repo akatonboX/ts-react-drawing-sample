@@ -4,7 +4,7 @@ import { Shape, ShapeDriver, ShapeMouseEventHandler } from './core';
 import { clientToDrawingPoint } from './util';
 import { applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
-import { off } from 'process';
+
 const MIN_SHAPE_SIZE = 30;
 interface Selection{
   shapes: Shape[];
@@ -31,14 +31,6 @@ interface MouseEventConnectorManger{
   onContextMenu: MouseEventConnector;
   onMousedown: MouseEventConnector;
 }
-// type StartEdit = (x: number, y: number, command: string) => void;
-
-export interface DrawingController{
-  shapes: Shape[];
-  selectedShapes: Shape[];
-  select: (shapes: Shape[]) => void;
-  addShape: (shape: Shape) => void;
-}
 
 function createZoomedShape(shape: Shape, zoom: number){
   return  {
@@ -53,21 +45,20 @@ function createZoomedShape(shape: Shape, zoom: number){
     angle: shape.angle,
   }
 }
-function _Drawing(
+export function Drawing(
   props: {
     shapes: Shape[],
+    newShape?: Shape,
     shapeDrivers: ShapeDriver[],
-    width: number;
-    height: number;
-    zoom?: number;
-    onChanged: (e: {
-     changedValues: Shape[],
-    }) => void,
-  },
-  ref: React.Ref<DrawingController>
+    width: number,
+    height: number,
+    zoom?: number,
+    onChanged: (shapes: Shape[]) => void,
+  }
 ) {
   const [logPoint, setLogPoint] = React.useState<{x: number, y:number,color: string}[]>([])
 
+  //■shpaeに対するマウスイベントと、他のコンポーネントでの実行を仲介するオブジェクト
   const mouseEventConnectorManger = React.useRef<MouseEventConnectorManger>({
     onClick: new MouseEventConnector(),
     onContextMenu: new MouseEventConnector(),
@@ -117,18 +108,6 @@ function _Drawing(
     save: () => {_setSelected(clonedSelection);},
   }
 
-  //■refを登録
-  React.useImperativeHandle(ref, () => {
-    return {
-      shapes: props.shapes,
-      selectedShapes: selection.shapes,
-      select: (shapes: Shape[]) => {selection.set([...shapes.map(item => lodash.cloneDeep(item))]);},
-      addShape: (shape: Shape) => {
-        selection.set([lodash.cloneDeep(shape)]);
-      },
-    };
-  });
-
   //■rootElementのサイズをトラッキングし、変更した場合stateに反映
   React.useEffect(() => {
     const rootElement = rootElementRef.current;
@@ -164,22 +143,23 @@ function _Drawing(
           <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom}/>
           {documentRectElementRef.current != null ?
             <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
-            : <></>
-          }
+            : <></>}
+          {props.newShape != null && documentRectElementRef.current != null ?
+            <Appender shapes={props.shapes} zoom={zoom} newShape={props.newShape} svgSize={svgSize} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
+            : <></>}
+          
           {logPoint.map((item, index) => <circle key={index}cx={item.x} cy={item.y} r={3} fill={item.color}/>)}
         </svg>
       </div>
     </div>
   )
 }
-export const Drawing = React.forwardRef(_Drawing);
 
-export function Viewer(
+function Viewer(
   props: {
     shapes: Shape[],
     shapeDrivers: ShapeDriver[],
     selection: Selection,
-    // startEdit: StartEdit,
     mouseEventConnectorManger: MouseEventConnectorManger,
     zoom: number,
   }
@@ -220,24 +200,20 @@ function None(
   return <></>;
 }
 
-export function Editor(
+function Editor(
   props: {
     shapes: Shape[],
     shapeDrivers: ShapeDriver[],
     selection: Selection,
-    // startEdit: StartEdit,
     mouseEventConnectorManger: MouseEventConnectorManger,
-    zoom: number;
+    zoom: number,
     documentElementRect: {
       top: number,
       left: number,
       width: number,
       height: number,
-    }
-    onChanged: (e: {
-      changedValues: Shape[],
-    }) => void,
-    
+    },
+    onChanged: (shapes: Shape[]) => void,  
   }
 ) {
   //■操作の実行状態
@@ -310,7 +286,7 @@ export function Editor(
         executeCommandInfo.current = null;
 
         //■onChangeイベントを発生
-        props.onChanged({changedValues: props.selection.shapes});
+        props.onChanged(props.shapes.map(shape => props.selection.shapes.find(item => item.id === shape.id) ?? shape));
         
         //■selectionを新しいオブジェクトに差し替え
         props.selection.save();
@@ -321,7 +297,7 @@ export function Editor(
     return () => {
       window.removeEventListener('mouseup', onMouseUpHandler);
     };
-  }, [props.selection]);
+  }, [props.shapes, props.selection]);
 
   //■mousemoveイベントの登録
   React.useEffect(() => {
@@ -491,7 +467,7 @@ export function Editor(
 		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
             </svg>
             {/* 回転のマウス操作を受け入れるための透明な円 */}
-            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate")} } />         
+            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate")} } />         
             <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
           </g>
         );
@@ -516,3 +492,47 @@ function DragPoint(
   }} />
 }
 
+
+function Appender(
+  props: {
+    newShape: Shape,
+    shapes: Shape[],
+    zoom: number,
+    documentElementRect: {
+      top: number,
+      left: number,
+      width: number,
+      height: number,
+    },
+    svgSize: {
+      minX: number,
+      minY: number,
+      width: number,
+      height: number,
+    },
+    onChanged: (shapes: Shape[]) => void,
+  }
+) {
+  return <rect style={{cursor: "crosshair"}} 
+            onClick={e => {
+              //■マウスの座標をSVGの座標系に変換(zoomを加味)
+              const currentPoint = {x: (e.clientX - props.documentElementRect.left) / props.zoom, y: (e.clientY- props.documentElementRect.top) / props.zoom};
+
+              //■新しいshapeの構築
+              const newShape = lodash.cloneDeep(props.newShape);
+              newShape.left = currentPoint.x;
+              newShape.top = currentPoint.y;
+              newShape.id = window.crypto.randomUUID();
+
+              //■変更を通知
+              props.onChanged([...props.shapes, newShape]);
+            }} 
+
+            x={props.svgSize.minX} 
+            y={props.svgSize.minY} 
+            width={props.svgSize.width} 
+            height={props.svgSize.height} 
+            stroke="rgba(255, 255, 255, 0.01)"
+            fill="rgba(255, 255, 255, 0.01)"
+          />
+}

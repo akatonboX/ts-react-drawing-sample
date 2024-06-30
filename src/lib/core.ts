@@ -29,9 +29,9 @@ export interface ShapeDriver{
   /** 表示のためのコンポーネントを取得する */
   viewerComponent: React.FC<{
     shape: Shape
-    onClick: ShapeMouseEventHandler;
-    onContextMenu: ShapeMouseEventHandler;
-    onMousedown: ShapeMouseEventHandler;
+    onClick?: ShapeMouseEventHandler;
+    onContextMenu?: ShapeMouseEventHandler;
+    onMousedown?: ShapeMouseEventHandler;
   }>;
 
 }
