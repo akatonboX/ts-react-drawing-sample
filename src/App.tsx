@@ -1,7 +1,7 @@
 import React from 'react';
 import logo from './logo.svg';
 import './App.css';
-import { Shape, ShapeDriver } from './lib/core';
+import { Group, Shape, ShapeDriver, ajustGroup, isGroup } from './lib/core';
 import { rectDriver } from './lib/drivers';
 import { Drawing } from './lib/ui';
 import { applyToPoint, compose, rotate, rotateDEG, scale, translate } from 'transformation-matrix';
@@ -20,7 +20,7 @@ function App() {
     {
       label: "四角形",
       shape: {
-        id: "1",
+        id: window.crypto.randomUUID(),
         type: "rect",
         left: 0,
         top: 0, 
@@ -34,7 +34,7 @@ function App() {
     {
       label: "四角形",
       shape: {
-        id: "2",
+        id: window.crypto.randomUUID(),
         type: "rect",
         left: 0,
         top: 0, 
@@ -44,14 +44,14 @@ function App() {
         lineColor: "black",
         angle: 0,
       }
-    }
+    },
   ];
   const shapeDrivers =[
     rectDriver,
   ];
-  const [shapes, setShapes] = React.useState([
+  const data = [
     {
-      id: "1",
+      id: window.crypto.randomUUID(),
       type: "rect",
       
       left: 50,
@@ -63,7 +63,7 @@ function App() {
       angle: 0,
     },
     {
-      id: "2",
+      id: window.crypto.randomUUID(),
       type: "rect",
       left: 50,
       top: 50, 
@@ -73,7 +73,82 @@ function App() {
       lineColor: "red",
       angle: 45,
     },
-  ]);
+    {
+      id: window.crypto.randomUUID(),
+      type: "group",
+      left: 0,
+      top: 0, 
+      width: 0,
+      height: 0,
+      backgroudColor: "red",
+      lineColor: "red",
+      angle: 0,
+      shapes: [
+        {
+          id: window.crypto.randomUUID(),
+          type: "rect",
+          
+          left: 150,
+          top: 150, 
+          width: 100,
+          height: 100,
+          backgroudColor: "blue",
+          lineColor: "blue",
+          angle: 0,
+        },
+        {
+          id: window.crypto.randomUUID(),
+          type: "rect",
+          left: 200,
+          top: 200, 
+          width: 100,
+          height: 100,
+          backgroudColor: "red",
+          lineColor: "red",
+          angle: 0,
+        },
+        {
+          id: window.crypto.randomUUID(),
+          type: "group",
+          left: 0,
+          top: 0, 
+          width: 0,
+          height: 0,
+          backgroudColor: "red",
+          lineColor: "red",
+          angle: 0,
+          shapes: [
+            {
+              id: window.crypto.randomUUID(),
+              type: "rect",
+              
+              left: 300,
+              top: 300, 
+              width: 100,
+              height: 100,
+              backgroudColor: "blue",
+              lineColor: "blue",
+              angle: 0,
+            },
+            {
+              id: window.crypto.randomUUID(),
+              type: "rect",
+              left: 350,
+              top: 350, 
+              width: 100,
+              height: 100,
+              backgroudColor: "red",
+              lineColor: "red",
+              angle: 0,
+            },
+          ]
+        },
+      ]
+    },
+  ];
+  data.forEach(item => {if(isGroup(item)){ajustGroup(item);}});
+  const [shapes, setShapes] = React.useState<(Shape | Group)[]>(data);
+  
   const [zoom, setZoom] = React.useState(100);
   const [newShape, setNewShape] = React.useState<Shape | undefined>(undefined);
   return (
@@ -95,7 +170,7 @@ function App() {
             <div className={styles.appendItems}>
               {
                 appendItems.map(item => {return {appendItem: item, driver: shapeDrivers.find(driver => driver.accept(item.shape))};})
-                .filter(item => item.driver != null)
+                .filter(item => item.driver != null)//ドライバが見つからないものを除く
                 .map(item => item as {appendItem: AppendItem, driver: ShapeDriver})
                 .map(item => {
                   return (

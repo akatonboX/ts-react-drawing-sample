@@ -1,8 +1,8 @@
 import React, { MouseEventHandler } from 'react';
 import lodash from 'lodash';
-import { Shape, ShapeDriver, ShapeMouseEventHandler } from './core';
+import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, ajustGroup, findShape, findTopGroup, isGroup } from './core';
 import { clientToDrawingPoint } from './util';
-import { applyToPoint, compose, rotateDEG } from 'transformation-matrix';
+import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
 
 const MIN_SHAPE_SIZE = 30;
@@ -198,39 +198,35 @@ function Viewer(
    
   return (
     <>
-      {props.shapes.map(shape => {
-        const driver = props.shapeDrivers.find(item => item.accept(shape));
-        if(driver != null){
-          const Component = driver.viewerComponent;
-          const selectedTarget = props.selection.shapes.find(item => item.id === shape.id);
-          const zoomedShape = createZoomedShape(selectedTarget != null ? selectedTarget : shape, props.zoom);
+      {props.shapes
+        .map(item => {return {shape: item, driver: props.shapeDrivers.find(driver => driver.accept(item))}})
+        .filter(item => item.driver != null || isGroup(item.shape))//group以外のdriverが見つからない要素を除外
+        .map(target => {
+          if(isGroup(target.shape)){
+            return <Viewer key={target.shape.id} shapeDrivers={props.shapeDrivers} shapes={target.shape.shapes} selection={props.selection} mouseEventConnectorManger={props.mouseEventConnectorManger} zoom={props.zoom}/>
+          }
+          else{
+            const Component = target.driver?.viewerComponent as ShapeViewerComponent;//driver==nullは除外しているので、undefiendを考慮しない
+            const selectedTarget = findShape(props.selection.shapes, target.shape.id);
+            const zoomedShape = createZoomedShape(selectedTarget != null ? selectedTarget : target.shape, props.zoom);
+            
+            return (
+              <g key={target.shape.id} style={{cursor: selectedTarget != null ? "move" : undefined}} >
+                <Component    
+                  shape={zoomedShape} 
+                  onClick={(shapeId, e) => {props.mouseEventConnectorManger.onClick.execute(shapeId, e)}}
+                  onContextMenu={(shapeId, e) => {props.mouseEventConnectorManger.onContextMenu.execute(shapeId, e)}}
+                  onMousedown={(shapeId, e) => {props.mouseEventConnectorManger.onMousedown.execute(shapeId, e)}}
+                />
+              </g>
+            );
+          }
           
-          return (
-            <g key={shape.id} style={{cursor: selectedTarget != null ? "move" : undefined}} >
-              <Component    
-                shape={zoomedShape} 
-                onClick={(shapeId, e) => {props.mouseEventConnectorManger.onClick.execute(shapeId, e)}}
-                onContextMenu={(shapeId, e) => {props.mouseEventConnectorManger.onContextMenu.execute(shapeId, e)}}
-                onMousedown={(shapeId, e) => {props.mouseEventConnectorManger.onMousedown.execute(shapeId, e)}}
-              />
-            </g>
-          );
-        }
-        else{
-          return <None key={shape.id} />;
-        }
-      })}
+        })
+      }
     </>
   );
 }
-
-function None(
-  props: {
-  }
-) {
-  return <></>;
-}
-
 
 function Editor(
   props: {
@@ -271,18 +267,27 @@ function Editor(
 
         //■対象のshpaeが未選択の場合、対象のshapeを選択に含める。
         if(props.selection.shapes.find(item => item.id === shapeId) == null){
-          const targetShape = props.shapes.find(item => item.id === shapeId);
+          //■対象のshapeを取得
+          const targetShape = findShape(props.shapes, shapeId);
           if(targetShape == null)throw Error(`idが存在しない。id=${shapeId}`);
+
+          //■対象がグループの場合は、選択対象をグループにする
+          const newSelectShape = (() => {
+            const group = findTopGroup(props.shapes, shapeId);
+            return group != null ? group : targetShape;
+          })();
+         
           if(e.shiftKey){
-            props.selection.append([targetShape]);
+            props.selection.append([newSelectShape]);
           }
           else{
-            props.selection.set([targetShape]);
+            props.selection.set([newSelectShape]);
           }
         }
         
         //■移動の開始
-        startEdit(e.clientX, e.clientY, "move", shapeId);
+        const group = findTopGroup(props.shapes, shapeId);
+        startEdit(e.clientX, e.clientY, "move", group != null ? group.id : shapeId);
       }
     };
     props.mouseEventConnectorManger.onMousedown.addListener(onMousedownHandler);
@@ -315,7 +320,11 @@ function Editor(
           {
             label: "グループ化",
             onClick: () => {
-              alert("hoge")
+              if(props.selection.shapes.length > 0){
+                props.selection.shapes.forEach(shape => {
+            
+                })
+              }
             },
           },
           {
@@ -373,10 +382,14 @@ function Editor(
         switch(executeCommandInfo.current.type){
           case "move":
             props.selection.shapes.forEach(shape => {
-              const targetShape = props.shapes.find(item => item.id === shape.id);
-              if(targetShape != null){        
-                shape.left = (targetShape?.left ?? 0) + currentPoint.x- startPoint.x;
-                shape.top = (targetShape?.top ?? 0) + currentPoint.y - startPoint.y;
+              const targetShape = findShape(props.shapes, shape.id);
+              if(targetShape != null){  
+                shape.left = (targetShape.left) + currentPoint.x- startPoint.x;
+                shape.top = (targetShape.top) + currentPoint.y - startPoint.y;   
+                if(isGroup(shape)){
+                  setGroup(props.shapes, shape, {left: currentPoint.x- startPoint.x, top: currentPoint.y - startPoint.y });
+                  ajustGroup(shape);
+                }
               }
             });
             break;
@@ -427,8 +440,11 @@ function Editor(
             }
 
             //■すべての選択に対して処理
-            props.selection.shapes.forEach(shape => {
-              const targetShape = props.shapes.find(item => item.id === shape.id);
+            props.selection.shapes.forEach(selectedShape => {
+              //■オリジナルのデータを保持
+              const shape = {id: selectedShape.id, left: selectedShape.left, top: selectedShape.top, width: selectedShape.width, height: selectedShape.height, angle: selectedShape.angle};
+              //■対象のshapeを取得
+              const targetShape = findShape(props.shapes, shape.id);
               if(targetShape != null){      
                 //■サイズの変更  
                 if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
@@ -484,6 +500,22 @@ function Editor(
                 shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
                 shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
 
+                //■値の反映
+                if(isGroup(selectedShape)){
+                  setGroup(props.shapes, selectedShape, {
+                    left: shape.left - selectedShape.left, 
+                    top: shape.top - selectedShape.top,
+                    width: shape.width - selectedShape.width,
+                    height: shape.height - selectedShape.height,
+                  });
+                  ajustGroup(selectedShape);
+                }
+                else{
+                  selectedShape.left = shape.left;
+                  selectedShape.top = shape.top;
+                  selectedShape.width = shape.width;
+                  selectedShape.height = shape.height;
+                }
               }
             }); 
 
@@ -494,22 +526,23 @@ function Editor(
 
             const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
             const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
-            
+            const differenceAngle = (((mouseRadian - startRadian) * 180) / Math.PI);
+
             //■すべての選択に対して処理
             props.selection.shapes.forEach(shape => {
-              const targetShape = props.shapes.find(item => item.id === shape.id);
+              const targetShape = findShape(props.shapes, shape.id);
               if(targetShape != null){     
-                shape.angle = (targetShape?.angle ?? 0) + ((mouseRadian - startRadian) * 180) / Math.PI; 
+                //■値の反映
+                shape.angle = targetShape.angle + differenceAngle; 
+                if(isGroup(shape)){
+                  setGroupAngle(props.shapes, shape, differenceAngle); 
+                }
               }
             });
            
             break;
         }
 
-        //■座標の変化をshapeに反映
-        for(const shape of props.selection.shapes){
-          
-        }
         props.selection.save();
       }
     };
@@ -522,19 +555,28 @@ function Editor(
   const iconSize = 24;
   return (
     <>
-      {props.selection.shapes.map(item => {
-        const zoomedShape = createZoomedShape(item, props.zoom);
+      {props.selection.shapes.map(shape => {
+        const group = isGroup(shape) ? shape : undefined;
+
+        const zoomedShape = createZoomedShape(shape, props.zoom);
+        //■グループの時はマージンをとる
+        if(isGroup(shape)){
+          zoomedShape.left -= 10;
+          zoomedShape.top -= 10;
+          zoomedShape.width += 20;
+          zoomedShape.height += 20;
+        }
         return (
           <g key={zoomedShape.id} transform={`rotate(${zoomedShape.angle}, ${zoomedShape.left + (zoomedShape.width / 2)}, ${zoomedShape.top + (zoomedShape.height / 2)})`} >
-            <rect x={zoomedShape.left} y={zoomedShape.top} width={zoomedShape.width} height={zoomedShape.height} fill="none" stroke="#F46860" strokeWidth="1"/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
-            <DragPoint shapeId={item.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={item.id} left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
+            <rect x={zoomedShape.left} y={zoomedShape.top} width={zoomedShape.width} height={zoomedShape.height} fill="none" stroke="black" strokeWidth="1" strokeDasharray="2" />
+            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
+            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
+            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
             <svg x={zoomedShape.left + (zoomedShape.width / 2) - (iconSize / 2)} y={zoomedShape.top - (iconSize + 30)} >
               <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
 		c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
@@ -546,7 +588,7 @@ function Editor(
 		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
             </svg>
             {/* 回転のマウス操作を受け入れるための透明な円 */}
-            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", item.id)} } />         
+            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", shape.id)} } />         
             <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
 
           </g>
@@ -558,6 +600,73 @@ function Editor(
 }
 type resizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" | "se-resize" | "s-resize" | "sw-resize" | "sw-resize" | "w-resize";
 
+function setGroup(originalShapes: Shape[], group: Group, difference: {left?: number, top?: number, width?: number, height?: number, angle?: number}){
+  const left = difference.left ?? 0;
+  const top = difference.top ?? 0;
+  const width = difference.width ?? 0;
+  const height = difference.height ?? 0;
+  const angle = difference.angle ?? 0;
+  group.shapes.forEach(shape => {
+    const originalShape = findShape(originalShapes, shape.id);
+    if(originalShape != null){
+      if(isGroup(shape)){
+        setGroup(originalShapes, shape, difference);
+      }
+      else{
+        shape.left = originalShape.left + left;
+        shape.top = originalShape.top + top;
+        shape.width = originalShape.width + width;
+        shape.height = originalShape.height + height;
+        shape.angle = originalShape.angle + angle;
+      }
+    }
+  });
+}
+function _setGroupAngle(originalShapes: Shape[], group: Group, matrix: Matrix){
+ 
+  group.shapes.forEach(shape => {
+   
+    const originalShape = findShape(originalShapes, shape.id);
+    if(originalShape != null){
+      //■shapeの回転後の座標を得る
+      const shapeCenterPoint = {x: originalShape.left + originalShape.width / 2, y: originalShape.top + originalShape.height / 2};
+      const shapeMatrix = compose(rotateDEG(originalShape.angle, shapeCenterPoint.x, shapeCenterPoint.y));
+      const shapeLeftTopPoint = applyToPoint(shapeMatrix, {x: originalShape.left, y: originalShape.top});
+      //■親のgroupの回転を反映
+      const routedLeftTopPoint = applyToPoint(matrix, shapeLeftTopPoint);
+      const routedCenterPoint = applyToPoint(matrix, shapeCenterPoint);
+      //■角度の算出
+      const startRadian = Math.atan2(originalShape.top - shapeCenterPoint.y, originalShape.left - shapeCenterPoint.x);
+      const endRadian = Math.atan2(routedLeftTopPoint.y - routedCenterPoint.y, routedLeftTopPoint.x - routedCenterPoint.x);
+      const angle = (((endRadian - startRadian) * 180) / Math.PI);
+      //■角度を戻して、left-top座標を算出
+      const beforeRoutedMatrix = compose(rotateDEG(angle * -1, routedCenterPoint.x, routedCenterPoint.y));
+      const beforeRoutedPoint = applyToPoint(beforeRoutedMatrix, routedLeftTopPoint);
+      //■値の反映
+      shape.angle = angle;
+      shape.left = beforeRoutedPoint.x;
+      shape.top = beforeRoutedPoint.y;
+
+      //対象がグループの時は再帰
+      if(isGroup(shape)){
+        _setGroupAngle(originalShapes, shape, matrix);
+      }
+
+      // (((mouseRadian - startRadian) * 180) / Math.PI); 
+      //         return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
+      // if(isGroup(shape)){
+      //   setGroupAngle(originalShapes, group, shape, difference);
+      // }
+      // else{
+      //   groupShape.angle = originalShape.angle + angle;
+      // }
+    }
+  });
+}
+function setGroupAngle(originalShapes: Shape[], group: Group, differenceAangle: number){
+  const matrix = compose(rotateDEG(differenceAangle, group.left + group.width / 2, group.top + group.height / 2));
+  _setGroupAngle(originalShapes, group, matrix);
+}
 
 function DragPoint(
   props: {

@@ -1,4 +1,5 @@
-import { Shape, ShapeDriver } from "./core";
+import { FC } from "react";
+import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, isGroup } from "./core";
 
 export const rectDriver: ShapeDriver = {
   accept: (shape: Shape) => shape.type === "rect",
