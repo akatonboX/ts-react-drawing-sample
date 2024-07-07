@@ -1,11 +1,11 @@
 import React, { MouseEventHandler } from 'react';
 import lodash from 'lodash';
-import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, ajustGroup, findShape, findTopGroup, isGroup } from './core';
+import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, findShape, findTopGroup, isGroup, moveShape, resizeShape, ResizeCommand, routeShape } from './core';
 import { clientToDrawingPoint } from './util';
 import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
 
-const MIN_SHAPE_SIZE = 30;
+
 interface Selection{
   shapes: Shape[];
   clear: () => void;
@@ -382,15 +382,7 @@ function Editor(
         switch(executeCommandInfo.current.type){
           case "move":
             props.selection.shapes.forEach(shape => {
-              const targetShape = findShape(props.shapes, shape.id);
-              if(targetShape != null){  
-                shape.left = (targetShape.left) + currentPoint.x- startPoint.x;
-                shape.top = (targetShape.top) + currentPoint.y - startPoint.y;   
-                if(isGroup(shape)){
-                  setGroup(props.shapes, shape, {left: currentPoint.x- startPoint.x, top: currentPoint.y - startPoint.y });
-                  ajustGroup(shape);
-                }
-              }
+              moveShape(props.shapes, shape, {left: currentPoint.x- startPoint.x, top:currentPoint.y - startPoint.y });
             });
             break;
 
@@ -409,8 +401,8 @@ function Editor(
             })();
 
             //■変化の差を得る
-            const difference = {
-              x: (() => {
+            const additonal = {
+              width: (() => {
                 switch(executeCommandInfo.current.type){
                   case "ne-resize":
                   case "e-resize":
@@ -423,7 +415,7 @@ function Editor(
                   default: return 0;
                 }
               })(),               
-              y: (() => {
+              height: (() => {
                 switch(executeCommandInfo.current.type){
                   case "ne-resize":
                   case "n-resize":
@@ -436,110 +428,25 @@ function Editor(
                   default: return 0;
                 }
               })(),   
-              
             }
 
-            //■すべての選択に対して処理
+            //■サイズを変更
             props.selection.shapes.forEach(selectedShape => {
-              //■オリジナルのデータを保持
-              const shape = {id: selectedShape.id, left: selectedShape.left, top: selectedShape.top, width: selectedShape.width, height: selectedShape.height, angle: selectedShape.angle};
-              //■対象のshapeを取得
-              const targetShape = findShape(props.shapes, shape.id);
-              if(targetShape != null){      
-                //■サイズの変更  
-                if(targetShape.width + difference.x >= MIN_SHAPE_SIZE){
-                  shape.width = targetShape.width + difference.x;
-                }
-                if(targetShape.height + difference.y >= MIN_SHAPE_SIZE){
-                  shape.height = targetShape.height + difference.y;
-                }
-
-                //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
-                shape.left = shape.left + (executeCommandInfo.current?.type === "nw-resize" || executeCommandInfo.current?.type === "w-resize" || executeCommandInfo.current?.type === "sw-resize" ? difference.x : 0);
-                shape.top = shape.top + (executeCommandInfo.current?.type === "nw-resize" || executeCommandInfo.current?.type === "n-resize" || executeCommandInfo.current?.type === "ne-resize" ? difference.y : 0);
-
-                //■回転後のオリジナルの差分確認用の座標を得る
-                const routatedOriginalPoint = (() => {
-                  const matrix = compose(rotateDEG(targetShape.angle, targetShape.left + targetShape.width / 2, targetShape.top + targetShape.height / 2));
-                  const point = (() => {
-                    switch(executeCommandInfo.current?.type){
-                      case "nw-resize": return {x: targetShape.left + targetShape.width, y: targetShape.top + targetShape.height};
-                      case "n-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
-                      case "ne-resize": return {x: targetShape.left, y: targetShape.top + targetShape.height};
-                      case "e-resize": return{x: targetShape.left, y: targetShape.top};
-                      case "se-resize": return{x: targetShape.left, y: targetShape.top};
-                      case "s-resize": return{x: targetShape.left, y: targetShape.top};
-                      case "sw-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
-                      case "w-resize": return{x: targetShape.left + targetShape.width, y: targetShape.top};
-                      default: throw Error();
-                    }
-                  })();
-                  return applyToPoint(matrix, point);
-                })();
-
-                //■回転後の差分確認用の座標を得る
-                const routatedNewPoint = (() => {
-                  const matrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
-                  const point = (() => {
-                    switch(executeCommandInfo.current.type){
-                      case "nw-resize": return {x: shape.left + shape.width, y: shape.top + shape.height};
-                      case "n-resize": return {x: shape.left, y: shape.top + shape.height};
-                      case "ne-resize": return {x: shape.left, y: shape.top + shape.height};
-                      case "e-resize": return{x: shape.left, y: shape.top};
-                      case "se-resize": return{x: shape.left, y: shape.top};
-                      case "s-resize": return{x: shape.left, y: shape.top};
-                      case "sw-resize": return{x: shape.left + shape.width, y: shape.top};
-                      case "w-resize": return{x: shape.left + shape.width, y: shape.top};
-                      default: throw Error();
-                    }
-                  })();
-                  return applyToPoint(matrix, point);
-                })();
-
-                //■回転による左上座標を調整
-                shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
-                shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
-
-                //■値の反映
-                if(isGroup(selectedShape)){
-                  setGroup(props.shapes, selectedShape, {
-                    left: shape.left - selectedShape.left, 
-                    top: shape.top - selectedShape.top,
-                    width: shape.width - selectedShape.width,
-                    height: shape.height - selectedShape.height,
-                  });
-                  ajustGroup(selectedShape);
-                }
-                else{
-                  selectedShape.left = shape.left;
-                  selectedShape.top = shape.top;
-                  selectedShape.width = shape.width;
-                  selectedShape.height = shape.height;
-                }
-              }
+              resizeShape(props.shapes, selectedShape, additonal, executeCommandInfo.current?.type as ResizeCommand);
             }); 
+
 
             break;
           case "rotate":
+            //■変更する角度の算出
             const center = {x: manipulatedShape.left + (manipulatedShape.width / 2), y: manipulatedShape.top + (manipulatedShape.height / 2)};
             const start = {x: startPoint.x, y: startPoint.y};
-
             const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
             const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
-            const differenceAngle = (((mouseRadian - startRadian) * 180) / Math.PI);
+            const angle = (((mouseRadian - startRadian) * 180) / Math.PI);
 
             //■すべての選択に対して処理
-            props.selection.shapes.forEach(shape => {
-              const targetShape = findShape(props.shapes, shape.id);
-              if(targetShape != null){     
-                //■値の反映
-                shape.angle = targetShape.angle + differenceAngle; 
-                if(isGroup(shape)){
-                  setGroupAngle(props.shapes, shape, differenceAngle); 
-                }
-              }
-            });
-           
+            props.selection.shapes.forEach(shape => {routeShape(props.shapes, shape, {angle: angle}) });
             break;
         }
 
@@ -598,82 +505,12 @@ function Editor(
   );
 
 }
-type resizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" | "se-resize" | "s-resize" | "sw-resize" | "sw-resize" | "w-resize";
-
-function setGroup(originalShapes: Shape[], group: Group, difference: {left?: number, top?: number, width?: number, height?: number, angle?: number}){
-  const left = difference.left ?? 0;
-  const top = difference.top ?? 0;
-  const width = difference.width ?? 0;
-  const height = difference.height ?? 0;
-  const angle = difference.angle ?? 0;
-  group.shapes.forEach(shape => {
-    const originalShape = findShape(originalShapes, shape.id);
-    if(originalShape != null){
-      if(isGroup(shape)){
-        setGroup(originalShapes, shape, difference);
-      }
-      else{
-        shape.left = originalShape.left + left;
-        shape.top = originalShape.top + top;
-        shape.width = originalShape.width + width;
-        shape.height = originalShape.height + height;
-        shape.angle = originalShape.angle + angle;
-      }
-    }
-  });
-}
-function _setGroupAngle(originalShapes: Shape[], group: Group, matrix: Matrix){
- 
-  group.shapes.forEach(shape => {
-   
-    const originalShape = findShape(originalShapes, shape.id);
-    if(originalShape != null){
-      //■shapeの回転後の座標を得る
-      const shapeCenterPoint = {x: originalShape.left + originalShape.width / 2, y: originalShape.top + originalShape.height / 2};
-      const shapeMatrix = compose(rotateDEG(originalShape.angle, shapeCenterPoint.x, shapeCenterPoint.y));
-      const shapeLeftTopPoint = applyToPoint(shapeMatrix, {x: originalShape.left, y: originalShape.top});
-      //■親のgroupの回転を反映
-      const routedLeftTopPoint = applyToPoint(matrix, shapeLeftTopPoint);
-      const routedCenterPoint = applyToPoint(matrix, shapeCenterPoint);
-      //■角度の算出
-      const startRadian = Math.atan2(originalShape.top - shapeCenterPoint.y, originalShape.left - shapeCenterPoint.x);
-      const endRadian = Math.atan2(routedLeftTopPoint.y - routedCenterPoint.y, routedLeftTopPoint.x - routedCenterPoint.x);
-      const angle = (((endRadian - startRadian) * 180) / Math.PI);
-      //■角度を戻して、left-top座標を算出
-      const beforeRoutedMatrix = compose(rotateDEG(angle * -1, routedCenterPoint.x, routedCenterPoint.y));
-      const beforeRoutedPoint = applyToPoint(beforeRoutedMatrix, routedLeftTopPoint);
-      //■値の反映
-      shape.angle = angle;
-      shape.left = beforeRoutedPoint.x;
-      shape.top = beforeRoutedPoint.y;
-
-      //対象がグループの時は再帰
-      if(isGroup(shape)){
-        _setGroupAngle(originalShapes, shape, matrix);
-      }
-
-      // (((mouseRadian - startRadian) * 180) / Math.PI); 
-      //         return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
-      // if(isGroup(shape)){
-      //   setGroupAngle(originalShapes, group, shape, difference);
-      // }
-      // else{
-      //   groupShape.angle = originalShape.angle + angle;
-      // }
-    }
-  });
-}
-function setGroupAngle(originalShapes: Shape[], group: Group, differenceAangle: number){
-  const matrix = compose(rotateDEG(differenceAangle, group.left + group.width / 2, group.top + group.height / 2));
-  _setGroupAngle(originalShapes, group, matrix);
-}
-
 function DragPoint(
   props: {
     shapeId: string,
     left: number,
     top: number,
-    commnad: resizeCommand,
+    commnad: ResizeCommand,
     startEdit:  (startX: number, startY: number, command: string, targetShapeId: string) => void,
   }
 ){
