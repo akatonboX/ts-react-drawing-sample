@@ -8,6 +8,7 @@ import { applyToPoint, compose, rotate, rotateDEG, scale, translate } from 'tran
 import styles from "./App.module.scss";
 import { Slider, drawerClasses } from '@mui/material';
 import { ExpandableLayout } from './component/expandableLayout';
+import { GroupMenuItem, UnGroupMenuItem } from './lib/menuItem';
 
 interface AppendItem{
   label: string;
@@ -203,7 +204,12 @@ function App() {
           zoom={zoom}
           shapes={shapes}
           newShape={newShape}
+          contextMenuItems={[
+            new GroupMenuItem("グループ化"),
+            new UnGroupMenuItem("グループ解除"),
+          ]}
           onChanged={shapes => {
+            console.log("★onchange", shapes)
             setShapes(shapes);
             setNewShape(undefined);
           }}

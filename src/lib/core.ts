@@ -186,6 +186,7 @@ export function resizeShape(shapes: Shape[], shape: Shape, additional:{width: nu
   //■グループアイテムの再帰処理
   if(isGroup(shape)){
     shape.shapes.forEach(item => {resizeShape(shapes, item, {width: additionalWidth, height: additioalHeight}, command)});
+    // ajustGroup(shape);
   }
 }
 export function routeShape(shapes: Shape[], shape: Shape, additional:{angle: number}){

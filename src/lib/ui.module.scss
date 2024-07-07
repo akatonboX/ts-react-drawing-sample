@@ -21,11 +21,20 @@
   background-color: white;
   border: 1px solid black;
   display: flex;
-  padding: 5px;
+  padding: 10px;
   flex-direction: column;
-  > div[data-hasClick="true"] {
+
+  > div[data-hasclick="true"] {
     &:hover {
       background: #F5F5F5;
+    }
+    > *{
+      margin: 5px;
+    }
+  }
+  > div[data-hasclick="false"] {
+    > *{
+      color: #BDBDD4;
     }
     > *{
       margin: 5px;

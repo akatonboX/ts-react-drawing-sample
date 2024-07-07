@@ -6,7 +6,7 @@ import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix'
 import styles from "./ui.module.scss";
 
 
-interface Selection{
+export interface Selection{
   shapes: Shape[];
   clear: () => void;
   set: (shapes: Shape[]) => void;
@@ -45,10 +45,15 @@ function createZoomedShape(shape: Shape, zoom: number){
     angle: shape.angle,
   }
 }
-interface MenuItem{
+
+export interface MenuItem{
   label: React.ReactNode;
-  onClick?: (() => void) | (() => Promise<void>);
+  isVisible?: (shapes: Shape[], selection: Selection) => boolean;
+  isEnable?: (shapes: Shape[], selection: Selection) => boolean;
+  onClick?: ((shapes: Shape[], selection: Selection, onChanged: (shapes: Shape[]) => void) => void) | (() => Promise<void>);
+
 }
+
 interface ContextMenu{
   position: {
     left: number;
@@ -66,6 +71,7 @@ export function Drawing(
     height: number,
     zoom?: number,
     onChanged: (shapes: Shape[]) => void,
+    contextMenuItems: MenuItem[],
   }
 ) {
   const [logPoint, setLogPoint] = React.useState<{x: number, y:number,color: string}[]>([])
@@ -80,7 +86,7 @@ export function Drawing(
   //■elementの保持
   const rootElementRef = React.useRef<HTMLDivElement>(null);
   const documentRectElementRef = React.useRef<SVGRectElement>(null);
-
+  const contextMenuRef = React.useRef<HTMLDivElement>(null);
   //■rootElementのサイズ
   const [rootElementSize, setRootElementSize] = React.useState({width: 100, height: 100});
   
@@ -138,8 +144,35 @@ export function Drawing(
 
   //■コンテキストメニューの制御
   const [contextMenu, setContextMenu] = React.useState<ContextMenu | undefined>(undefined);
+  React.useEffect(() => {
+    const onContextMenuHandler: ShapeMouseEventHandler = (shapeId, e) => {
+      e.preventDefault();
+      setContextMenu({
+        position: {
+          left: e.clientX,
+          top: e.clientY,
+         },
+         menuItems: props.contextMenuItems,
+      });
+    };
+    mouseEventConnectorManger.current.onContextMenu.addListener(onContextMenuHandler);
 
-  
+    const onMouseDownHandler = (event: MouseEvent) => {
+      if(contextMenuRef.current != null){
+        if(!contextMenuRef.current.contains(event.target as Node)){
+          setContextMenu(undefined);
+        }
+      }
+   
+    };
+    window.addEventListener('mousedown', onMouseDownHandler);
+
+    return () => {
+      mouseEventConnectorManger.current.onContextMenu.removeListener(onContextMenuHandler);
+      window.removeEventListener('mousedown', onMouseDownHandler);
+    };
+  }, []);
+
   return (
     <div className={styles.root} ref={rootElementRef}>
       <div>{/* スクロール */}
@@ -158,7 +191,7 @@ export function Drawing(
             fill="white" />
           <Viewer shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom}/>
           {documentRectElementRef.current != null ?
-            <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} setContextMenu={setContextMenu} onChanged={props.onChanged}/>
+            <Editor shapeDrivers={props.shapeDrivers} shapes={props.shapes} selection={selection} mouseEventConnectorManger={mouseEventConnectorManger.current} zoom={zoom} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} contextMenuItems={props.contextMenuItems} setContextMenu={setContextMenu} onChanged={props.onChanged}/>
             : <></>}
           {props.newShape != null && documentRectElementRef.current != null ?
             <Appender shapes={props.shapes} zoom={zoom} newShape={props.newShape} svgSize={svgSize} documentElementRect={documentRectElementRef.current.getBoundingClientRect()} onChanged={props.onChanged} />
@@ -168,12 +201,12 @@ export function Drawing(
         </svg>
       </div>
       {contextMenu != null ?
-        <div className={styles.contextMenu} style={{left: contextMenu.position.left, top: contextMenu.position.top}}>
-          {contextMenu.menuItems.map(menuItem => (
-            <div data-hasClick={menuItem.onClick != null} onClick={async e => {
-              if(menuItem.onClick != null){
+        <div ref={contextMenuRef} className={styles.contextMenu} style={{left: contextMenu.position.left, top: contextMenu.position.top}}>
+          {contextMenu.menuItems.filter(item => item.isVisible == null || item.isVisible(props.shapes, selection)).map((menuItem, index) => (
+            <div key={index} data-hasclick={menuItem.onClick != null && (menuItem.isEnable == null || menuItem.isEnable(props.shapes, selection))} onClick={async e => {
+              if(menuItem.onClick != null && (menuItem.isEnable == null || menuItem.isEnable(props.shapes, selection))){
                 setContextMenu(undefined);
-                await menuItem.onClick();
+                await menuItem.onClick(props.shapes, selection, props.onChanged);
               }
             }}>
               <div>{menuItem.label}</div>
@@ -241,6 +274,7 @@ function Editor(
       width: number,
       height: number,
     },
+    contextMenuItems: MenuItem[],
     setContextMenu: (contextMenu?: ContextMenu) => void,
     onChanged: (shapes: Shape[]) => void,  
   }
@@ -305,42 +339,6 @@ function Editor(
 
     return () => {
       props.mouseEventConnectorManger.onClick.removeListener(onClickHandler);
-    };
-  }, []);
-  //■ShapeにonContextMenuのイベント登録
-  React.useEffect(() => {
-    const onContextMenuHandler: ShapeMouseEventHandler = (shapeId, e) => {
-      e.preventDefault();
-      props.setContextMenu({
-        position: {
-          left: e.clientX,
-          top: e.clientY,
-         },
-         menuItems: [
-          {
-            label: "グループ化",
-            onClick: () => {
-              if(props.selection.shapes.length > 0){
-                props.selection.shapes.forEach(shape => {
-            
-                })
-              }
-            },
-          },
-          {
-            label: <hr/>,
-          },
-          {
-            label: "ほげほげほげほｇほほほほほほおおはああああああああああああああああああ",
-          }
-         ]
-
-      });
-    };
-    props.mouseEventConnectorManger.onContextMenu.addListener(onContextMenuHandler);
-
-    return () => {
-      props.mouseEventConnectorManger.onContextMenu.removeListener(onContextMenuHandler);
     };
   }, []);
 
