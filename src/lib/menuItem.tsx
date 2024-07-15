@@ -18,13 +18,17 @@ export class GroupMenuItem implements MenuItem{
     const group: Group = {
       id: window.crypto.randomUUID(),
       type: "group",
-      left: 0,
-      top: 0, 
-      width: 0,
-      height: 0,
-      backgroudColor: "white",
-      lineColor: "black",
-      angle: 0,
+      surface: {
+        left: 0,
+        top: 0, 
+        width: 0,
+        height: 0,
+        angle: 0,
+        backgroudColor: "white",
+      },
+      line: {
+        color: "black",
+      },
       shapes: selection.shapes.map(shape => shapes.find(item => item.id === shape.id) as Shape).filter(item => item != null),
     }
     ajustGroup(group);

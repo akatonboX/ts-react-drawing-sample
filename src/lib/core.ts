@@ -3,28 +3,35 @@ import React from 'react';
 import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 
 const MIN_SHAPE_SIZE = 30;
-/** shapeを表す型 */
-export interface Shape{
-  id: string;
-  type: string;
+export interface Surface{
   left: number;
   top: number;
   width: number;
   height: number;
-  backgroudColor: string;
-  lineColor: string;
   angle: number;
+  backgroudColor: string;
+}
+/** shapeを表す型 */
+export interface Shape{
+  id: string;
+  type: string;
+  surface?: Surface;
+  line: {
+    color: string;
+  }
+  
 }
 
 /** groupを表す型 */
 export interface Group extends Shape{
   type: "group";
+  surface: Surface;
   shapes: Shape[];
 }
 
 /** groupかどうかを判定する */
 export function isGroup(arg: any): arg is Group {
-  return arg.type === "group";
+  return arg.type === "group" && arg.surface != null && arg.shapes != null;
 }
 
 /**
@@ -73,22 +80,24 @@ export function ajustGroup(group: Group): void{
     }
 
     //■交換
-    if(data.left > shape.left)
-      data.left = shape.left;
-    if(data.right < shape.left + shape.width)
-      data.right = shape.left + shape.width;
-    if(data.top > shape.top)
-      data.top = shape.top;
-    if(data.bottom < shape.top + shape.height)
-      data.bottom = shape.top + shape.height;
+    if(shape.surface != null){
+      if(data.left > shape.surface.left)
+        data.left = shape.surface.left;
+      if(data.right < shape.surface.left + shape.surface.width)
+        data.right = shape.surface.left + shape.surface.width;
+      if(data.top > shape.surface.top)
+        data.top = shape.surface.top;
+      if(data.bottom < shape.surface.top + shape.surface.height)
+        data.bottom = shape.surface.top + shape.surface.height;
+    }
   });
 
   //■自身のサイズ情報を更新
   if(data.left < data.right && data.top < data.bottom){
-    group.left = data.left;
-    group.width = data.right - data.left;
-    group.top = data.top;
-    group.height = data.bottom - data.top;
+    group.surface.left = data.left;
+    group.surface.width = data.right - data.left;
+    group.surface.top = data.top;
+    group.surface.height = data.bottom - data.top;
   }
 }
 
@@ -106,16 +115,17 @@ export type ResizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" 
  * @param command 
  * @returns 
  */
-function getFixedPointWhenMove(shape: Shape, command: ResizeCommand) {
+function getFixedPointWhenMove(surface: Surface, command: ResizeCommand) {
+  
   switch(command){
-    case "nw-resize": return {x: shape.left + shape.width, y: shape.top + shape.height};
-    case "n-resize": return {x: shape.left, y: shape.top + shape.height};
-    case "ne-resize": return {x: shape.left, y: shape.top + shape.height};
-    case "e-resize": return{x: shape.left, y: shape.top};
-    case "se-resize": return{x: shape.left, y: shape.top};
-    case "s-resize": return{x: shape.left, y: shape.top};
-    case "sw-resize": return{x: shape.left + shape.width, y: shape.top};
-    case "w-resize": return{x: shape.left + shape.width, y: shape.top};
+    case "nw-resize": return {x: surface.left + surface.width, y: surface.top + surface.height};
+    case "n-resize": return {x: surface.left, y: surface.top + surface.height};
+    case "ne-resize": return {x: surface.left, y: surface.top + surface.height};
+    case "e-resize": return{x: surface.left, y: surface.top};
+    case "se-resize": return{x: surface.left, y: surface.top};
+    case "s-resize": return{x: surface.left, y: surface.top};
+    case "sw-resize": return{x: surface.left + surface.width, y: surface.top};
+    case "w-resize": return{x: surface.left + surface.width, y: surface.top};
     default: throw Error();
   }
 }
@@ -130,12 +140,14 @@ export function moveShape(shapes: Shape[], shape: Shape, additional:{left: numbe
   const originalShape = findShape(shapes, shape.id);
   if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
   
-  shape.left = (originalShape.left) + additional.left;
-  shape.top = (originalShape.top) + additional.top;
-  if(isGroup(shape)){
-    shape.shapes.forEach(item => {
-      moveShape(shapes, item, additional);
-    });
+  if(originalShape.surface != null && shape.surface != null){
+    shape.surface.left = (originalShape.surface.left) + additional.left;
+    shape.surface.top = (originalShape.surface.top) + additional.top;
+    if(isGroup(shape)){
+      shape.shapes.forEach(item => {
+        moveShape(shapes, item, additional);
+      });
+    }
   }
 }
 /**
@@ -148,87 +160,88 @@ export function moveShape(shapes: Shape[], shape: Shape, additional:{left: numbe
 export function resizeShape(shapes: Shape[], shape: Shape, additional:{width: number, height: number}, command: ResizeCommand){
   const originalShape = findShape(shapes, shape.id);
   if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
-  
-  //■サイズの調整
-  const [additionalWidth, additioalHeight] = (() => [
-    originalShape.width + additional.width >= MIN_SHAPE_SIZE ? additional.width : MIN_SHAPE_SIZE - originalShape.width,
-    originalShape.height + additional.height >= MIN_SHAPE_SIZE ? additional.height : MIN_SHAPE_SIZE - originalShape.height,
-  ])();
-  //■サイズの変更  
-  shape.width = originalShape.width + additionalWidth;
-  shape.height = originalShape.height + additioalHeight;
+    if(originalShape.surface != null && shape.surface != null){
+    //■サイズの調整
+    const [additionalWidth, additioalHeight] = (() => [
+      originalShape.surface.width + additional.width >= MIN_SHAPE_SIZE ? additional.width : MIN_SHAPE_SIZE - originalShape.surface.width,
+      originalShape.surface.height + additional.height >= MIN_SHAPE_SIZE ? additional.height : MIN_SHAPE_SIZE - originalShape.surface.height,
+    ])();
+    //■サイズの変更  
+    shape.surface.width = originalShape.surface.width + additionalWidth;
+    shape.surface.height = originalShape.surface.height + additioalHeight;
 
-  //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
-  shape.left = originalShape.left - (command === "nw-resize" || command === "w-resize" || command === "sw-resize" ? additionalWidth : 0);
-  shape.top = originalShape.top - (command === "nw-resize" || command === "n-resize" || command === "ne-resize" ? additioalHeight : 0);
+    //■リサイズ方向によるleftTopの調整(左向きの場合はxをサイズ分マイナス / 上向きの場合はyをサイズ分マイナス)
+    shape.surface.left = originalShape.surface.left - (command === "nw-resize" || command === "w-resize" || command === "sw-resize" ? additionalWidth : 0);
+    shape.surface.top = originalShape.surface.top - (command === "nw-resize" || command === "n-resize" || command === "ne-resize" ? additioalHeight : 0);
 
-  //■shapeの回転に伴うleft,topの調整
-  if(shape.angle !== 0){
-    //■オリジナルのshapeを回転したうえで、固定されるべきPointを取得
-    const routatedOriginalPoint = (() => {
-      const matrix = compose(rotateDEG(originalShape.angle, originalShape.left + originalShape.width / 2, originalShape.top + originalShape.height / 2));
-      const point = getFixedPointWhenMove(originalShape, command);
-      return applyToPoint(matrix, point);
-    })();
+    //■shapeの回転に伴うleft,topの調整
+    if(shape.surface.angle !== 0){
+      //■オリジナルのshapeを回転したうえで、固定されるべきPointを取得
+      const routatedOriginalPoint = (() => {
+        const matrix = compose(rotateDEG(originalShape.surface.angle, originalShape.surface.left + originalShape.surface.width / 2, originalShape.surface.top + originalShape.surface.height / 2));
+        const point = getFixedPointWhenMove(originalShape.surface, command);
+        return applyToPoint(matrix, point);
+      })();
 
-    //■変更後のshapeを開店したうえで、固定されるべきPointを取得
-    const routatedNewPoint = (() => {
-      const matrix = compose(rotateDEG(shape.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
-      const point = getFixedPointWhenMove(shape, command);
-      return applyToPoint(matrix, point);
-    })();
+      //■変更後のshapeを開店したうえで、固定されるべきPointを取得
+      const routatedNewPoint = (() => {
+        const matrix = compose(rotateDEG(shape.surface.angle, shape.surface.left + shape.surface.width / 2, shape.surface.top + shape.surface.height / 2));
+        const point = getFixedPointWhenMove(shape.surface, command);
+        return applyToPoint(matrix, point);
+      })();
 
-     //■固定されるべきPointの変更が内容、上記2点の差分で補正
-     shape.left = shape.left - (routatedNewPoint.x - routatedOriginalPoint.x);
-     shape.top = shape.top - (routatedNewPoint.y - routatedOriginalPoint.y);
-  }
-
-  //■グループアイテムの再帰処理
-  if(isGroup(shape)){
-    shape.shapes.forEach(item => {resizeShape(shapes, item, {width: additionalWidth, height: additioalHeight}, command)});
-    // ajustGroup(shape);
+      //■固定されるべきPointの変更が内容、上記2点の差分で補正
+      shape.surface.left = shape.surface.left - (routatedNewPoint.x - routatedOriginalPoint.x);
+      shape.surface.top = shape.surface.top - (routatedNewPoint.y - routatedOriginalPoint.y);
+    }
+    //■グループアイテムの再帰処理
+    if(isGroup(shape)){
+      shape.shapes.forEach(item => {resizeShape(shapes, item, {width: additionalWidth, height: additioalHeight}, command)});
+      // ajustGroup(shape);
+    }
   }
 }
 export function routeShape(shapes: Shape[], shape: Shape, additional:{angle: number}){
   const originalShape = findShape(shapes, shape.id);
   if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
+  if(originalShape.surface != null && shape.surface != null){
+    shape.surface.angle = originalShape.surface.angle + additional.angle; 
 
-  shape.angle = originalShape.angle + additional.angle; 
-
-  if(isGroup(shape)){
-    const matrix = compose(rotateDEG(additional.angle, shape.left + shape.width / 2, shape.top + shape.height / 2));
-    _routeShape(shapes, shape, matrix);
+    if(isGroup(shape)){
+      const matrix = compose(rotateDEG(additional.angle, shape.surface.left + shape.surface.width / 2, shape.surface.top + shape.surface.height / 2));
+      _routeShape(shapes, shape, matrix);
+    }
   }
 }
 function _routeShape(shapes: Shape[], group: Group, matrix: Matrix){
  
   group.shapes.forEach(shape => {
-   
     const originalShape = findShape(shapes, shape.id);
     if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
+    if(originalShape.surface != null && shape.surface != null){
+      //■shapeの回転後の座標を得る
+      const shapeCenterPoint = {x: originalShape.surface.left + originalShape.surface.width / 2, y: originalShape.surface.top + originalShape.surface.height / 2};
+      const shapeMatrix = compose(rotateDEG(originalShape.surface.angle, shapeCenterPoint.x, shapeCenterPoint.y));
+      const shapeLeftTopPoint = applyToPoint(shapeMatrix, {x: originalShape.surface.left, y: originalShape.surface.top});
+      //■親のgroupの回転を反映
+      const routedLeftTopPoint = applyToPoint(matrix, shapeLeftTopPoint);
+      const routedCenterPoint = applyToPoint(matrix, shapeCenterPoint);
+      //■角度の算出
+      const startRadian = Math.atan2(originalShape.surface.top - shapeCenterPoint.y, originalShape.surface.left - shapeCenterPoint.x);
+      const endRadian = Math.atan2(routedLeftTopPoint.y - routedCenterPoint.y, routedLeftTopPoint.x - routedCenterPoint.x);
+      const angle = (((endRadian - startRadian) * 180) / Math.PI);
+      //■角度を戻して、left-top座標を算出
+      const beforeRoutedMatrix = compose(rotateDEG(angle * -1, routedCenterPoint.x, routedCenterPoint.y));
+      const beforeRoutedPoint = applyToPoint(beforeRoutedMatrix, routedLeftTopPoint);
+      //■値の反映
+      shape.surface.angle = angle;
+      shape.surface.left = beforeRoutedPoint.x;
+      shape.surface.top = beforeRoutedPoint.y;
 
-    //■shapeの回転後の座標を得る
-    const shapeCenterPoint = {x: originalShape.left + originalShape.width / 2, y: originalShape.top + originalShape.height / 2};
-    const shapeMatrix = compose(rotateDEG(originalShape.angle, shapeCenterPoint.x, shapeCenterPoint.y));
-    const shapeLeftTopPoint = applyToPoint(shapeMatrix, {x: originalShape.left, y: originalShape.top});
-    //■親のgroupの回転を反映
-    const routedLeftTopPoint = applyToPoint(matrix, shapeLeftTopPoint);
-    const routedCenterPoint = applyToPoint(matrix, shapeCenterPoint);
-    //■角度の算出
-    const startRadian = Math.atan2(originalShape.top - shapeCenterPoint.y, originalShape.left - shapeCenterPoint.x);
-    const endRadian = Math.atan2(routedLeftTopPoint.y - routedCenterPoint.y, routedLeftTopPoint.x - routedCenterPoint.x);
-    const angle = (((endRadian - startRadian) * 180) / Math.PI);
-    //■角度を戻して、left-top座標を算出
-    const beforeRoutedMatrix = compose(rotateDEG(angle * -1, routedCenterPoint.x, routedCenterPoint.y));
-    const beforeRoutedPoint = applyToPoint(beforeRoutedMatrix, routedLeftTopPoint);
-    //■値の反映
-    shape.angle = angle;
-    shape.left = beforeRoutedPoint.x;
-    shape.top = beforeRoutedPoint.y;
-
-    //対象がグループの時は再帰
-    if(isGroup(shape)){
-      _routeShape(shapes, shape, matrix);
+      //対象がグループの時は再帰
+      if(isGroup(shape)){
+        _routeShape(shapes, shape, matrix);
+      }
     }
   });
 }

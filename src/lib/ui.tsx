@@ -1,6 +1,6 @@
 import React, { MouseEventHandler } from 'react';
 import lodash from 'lodash';
-import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, findShape, findTopGroup, isGroup, moveShape, resizeShape, ResizeCommand, routeShape } from './core';
+import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, findShape, findTopGroup, isGroup, moveShape, resizeShape, ResizeCommand, routeShape, Surface } from './core';
 import { clientToDrawingPoint } from './util';
 import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
@@ -32,18 +32,23 @@ interface MouseEventConnectorManger{
   onMousedown: MouseEventConnector;
 }
 
+function createZoomedSurface(surface: Surface, zoom: number){
+  const zoomedSurface = lodash.cloneDeep(surface);
+  zoomedSurface.left = surface.left * zoom;
+  zoomedSurface.top = surface.top * zoom;
+  zoomedSurface.width = surface.width * zoom;
+  zoomedSurface.height = surface.height * zoom;
+  return zoomedSurface;
+}
 function createZoomedShape(shape: Shape, zoom: number){
-  return  {
-    id: shape.id,
-    type: shape.type,
-    left: shape.left * zoom,
-    top: shape.top * zoom,
-    width: shape.width * zoom,
-    height: shape.height * zoom,
-    backgroudColor: shape.backgroudColor,
-    lineColor: shape.lineColor,
-    angle: shape.angle,
+  const zoomedShape = lodash.cloneDeep(shape);
+  if(shape.surface != null && zoomedShape.surface != null){
+    zoomedShape.surface.left = shape.surface.left * zoom;
+    zoomedShape.surface.top = shape.surface.top * zoom;
+    zoomedShape.surface.width = shape.surface.width * zoom;
+    zoomedShape.surface.height = shape.surface.height * zoom;
   }
+  return zoomedShape;
 }
 
 export interface MenuItem{
@@ -394,8 +399,13 @@ function Editor(
           case "w-resize":
             //■回転後の座標系のマウス座標を、回転前の座標系の座標に変換
             const [routatedStartPoint, routatedCurrentPoint] = (() => {
-              const matrix = compose(rotateDEG(manipulatedShape.angle * -1, manipulatedShape.left + manipulatedShape.width / 2, manipulatedShape.top + manipulatedShape.height / 2));
-              return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
+              if(manipulatedShape.surface != null && manipulatedShape.surface.angle !== 0){
+                const matrix = compose(rotateDEG(manipulatedShape.surface.angle * -1, manipulatedShape.surface.left + manipulatedShape.surface.width / 2, manipulatedShape.surface.top + manipulatedShape.surface.height / 2));
+                return [applyToPoint(matrix, startPoint), applyToPoint(matrix, currentPoint)];
+              }
+              else{
+                return([startPoint, currentPoint]);
+              }
             })();
 
             //■変化の差を得る
@@ -437,7 +447,8 @@ function Editor(
             break;
           case "rotate":
             //■変更する角度の算出
-            const center = {x: manipulatedShape.left + (manipulatedShape.width / 2), y: manipulatedShape.top + (manipulatedShape.height / 2)};
+            if(manipulatedShape.surface == null)throw new Error("回転できないshape");
+            const center = {x: manipulatedShape.surface.left + (manipulatedShape.surface.width / 2), y: manipulatedShape.surface.top + (manipulatedShape.surface.height / 2)};
             const start = {x: startPoint.x, y: startPoint.y};
             const startRadian = Math.atan2(start.y - center.y, start.x - center.x);
             const mouseRadian = Math.atan2(currentPoint.y - center.y, currentPoint.x - center.x);
@@ -461,48 +472,53 @@ function Editor(
   return (
     <>
       {props.selection.shapes.map(shape => {
-        const group = isGroup(shape) ? shape : undefined;
+     
+        if(shape.surface != null){
+          const zoomedSurface = createZoomedSurface(shape.surface, props.zoom);
+          //■グループの時はマージンをとる
+          if(isGroup(shape)){
+            zoomedSurface.left -= 10;
+            zoomedSurface.top -= 10;
+            zoomedSurface.width += 20;
+            zoomedSurface.height += 20;
+          }
+          return (
+            <g key={shape.id} transform={`rotate(${zoomedSurface.angle}, ${zoomedSurface.left + (zoomedSurface.width / 2)}, ${zoomedSurface.top + (zoomedSurface.height / 2)})`} >
+              <rect x={zoomedSurface.left} y={zoomedSurface.top} width={zoomedSurface.width} height={zoomedSurface.height} fill="none" stroke="black" strokeWidth="1" strokeDasharray="2" />
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left} top={zoomedSurface.top} commnad="nw-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left + (zoomedSurface.width / 2)} top={zoomedSurface.top} commnad="n-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left + zoomedSurface.width} top={zoomedSurface.top} commnad="ne-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left + zoomedSurface.width} top={zoomedSurface.top + (zoomedSurface.height / 2)} commnad="e-resize"  startEdit={startEdit} />
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left + zoomedSurface.width} top={zoomedSurface.top + zoomedSurface.height} commnad="se-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left + (zoomedSurface.width / 2)} top={zoomedSurface.top + zoomedSurface.height} commnad="s-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left} top={zoomedSurface.top + zoomedSurface.height} commnad="sw-resize" startEdit={startEdit}/>
+              <DragPoint shapeId={shape.id} left={zoomedSurface.left} top={zoomedSurface.top + (zoomedSurface.height / 2)} commnad="w-resize" startEdit={startEdit}/>
+              <svg x={zoomedSurface.left + (zoomedSurface.width / 2) - (iconSize / 2)} y={zoomedSurface.top - (iconSize + 30)} >
+                <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
+      c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
+      c-20.906,0-40.566-4.663-58.197-12.856c-3.689-1.709-7.218-3.57-10.636-5.606c-3.514-1.996-6.868-4.184-10.094-6.452
+      c-6.596-4.6-12.728-9.758-18.446-15.396c-24.978-25.089-40.31-59.17-40.31-97.348c0-38.178,15.332-72.323,40.31-97.38
+      c16.689-16.657,37.435-28.986,60.751-35.383v41.068l92.534-93.636L219.403,0v48.854C108.105,66.454,23.046,162.74,23.03,278.998
+      c0.016,78.926,39.288,148.685,99.385,190.816c5.51,3.857,11.196,7.49,17.104,10.94c5.861,3.33,11.85,6.516,18.031,9.398
+      c29.897,13.951,63.244,21.792,98.475,21.848c128.706-0.08,232.93-104.304,232.946-233.002
+      C488.97,200.016,449.699,130.32,389.618,88.15z"/>
+              </svg>
+              {/* 回転のマウス操作を受け入れるための透明な円 */}
+              <circle r={iconSize / 2} cx={zoomedSurface.left + (zoomedSurface.width / 2)} cy={zoomedSurface.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", shape.id)} } />         
+              <line x1={zoomedSurface.left + (zoomedSurface.width / 2)} y1={zoomedSurface.top - 30} x2={zoomedSurface.left + (zoomedSurface.width / 2)}  y2={zoomedSurface.top}  stroke="black" strokeWidth={1} />
 
-        const zoomedShape = createZoomedShape(shape, props.zoom);
-        //■グループの時はマージンをとる
-        if(isGroup(shape)){
-          zoomedShape.left -= 10;
-          zoomedShape.top -= 10;
-          zoomedShape.width += 20;
-          zoomedShape.height += 20;
+            </g>
+          );
         }
-        return (
-          <g key={zoomedShape.id} transform={`rotate(${zoomedShape.angle}, ${zoomedShape.left + (zoomedShape.width / 2)}, ${zoomedShape.top + (zoomedShape.height / 2)})`} >
-            <rect x={zoomedShape.left} y={zoomedShape.top} width={zoomedShape.width} height={zoomedShape.height} fill="none" stroke="black" strokeWidth="1" strokeDasharray="2" />
-            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top} commnad="nw-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top} commnad="n-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top} commnad="ne-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="e-resize"  startEdit={startEdit} />
-            <DragPoint shapeId={shape.id} left={zoomedShape.left + zoomedShape.width} top={zoomedShape.top + zoomedShape.height} commnad="se-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left + (zoomedShape.width / 2)} top={zoomedShape.top + zoomedShape.height} commnad="s-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top + zoomedShape.height} commnad="sw-resize" startEdit={startEdit}/>
-            <DragPoint shapeId={shape.id} left={zoomedShape.left} top={zoomedShape.top + (zoomedShape.height / 2)} commnad="w-resize" startEdit={startEdit}/>
-            <svg x={zoomedShape.left + (zoomedShape.width / 2) - (iconSize / 2)} y={zoomedShape.top - (iconSize + 30)} >
-              <path fill="white" stroke="black" transform={`scale(${iconSize / 512})`} strokeWidth={512 / iconSize} d="M389.618,88.15l-54.668,78.072c6.58,4.631,12.713,9.726,18.366,15.396
-		c25.042,25.057,40.342,59.202,40.374,97.38c-0.032,38.177-15.332,72.258-40.374,97.348c-25.025,24.978-59.17,40.31-97.292,40.31
-		c-20.906,0-40.566-4.663-58.197-12.856c-3.689-1.709-7.218-3.57-10.636-5.606c-3.514-1.996-6.868-4.184-10.094-6.452
-		c-6.596-4.6-12.728-9.758-18.446-15.396c-24.978-25.089-40.31-59.17-40.31-97.348c0-38.178,15.332-72.323,40.31-97.38
-		c16.689-16.657,37.435-28.986,60.751-35.383v41.068l92.534-93.636L219.403,0v48.854C108.105,66.454,23.046,162.74,23.03,278.998
-		c0.016,78.926,39.288,148.685,99.385,190.816c5.51,3.857,11.196,7.49,17.104,10.94c5.861,3.33,11.85,6.516,18.031,9.398
-		c29.897,13.951,63.244,21.792,98.475,21.848c128.706-0.08,232.93-104.304,232.946-233.002
-		C488.97,200.016,449.699,130.32,389.618,88.15z"/>
-            </svg>
-            {/* 回転のマウス操作を受け入れるための透明な円 */}
-            <circle r={iconSize / 2} cx={zoomedShape.left + (zoomedShape.width / 2)} cy={zoomedShape.top - ((iconSize / 2) + 30)} fill="rgba(255, 255, 255, 0.01)"  style={{cursor: "move"}}  onMouseDown={e => {startEdit(e.clientX, e.clientY, "rotate", shape.id)} } />         
-            <line x1={zoomedShape.left + (zoomedShape.width / 2)} y1={zoomedShape.top - 30} x2={zoomedShape.left + (zoomedShape.width / 2)}  y2={zoomedShape.top}  stroke="black" strokeWidth={1} />
-
-          </g>
-        );
+        else{
+          return <>hoge</>;
+        }
       })}
     </>
   );
 
 }
+
 function DragPoint(
   props: {
     shapeId: string,
@@ -545,8 +561,10 @@ function Appender(
 
               //■新しいshapeの構築
               const newShape = lodash.cloneDeep(props.newShape);
-              newShape.left = currentPoint.x;
-              newShape.top = currentPoint.y;
+              if(newShape.surface != null){
+                newShape.surface.left = currentPoint.x;
+                newShape.surface.top = currentPoint.y;
+              }
               newShape.id = window.crypto.randomUUID();
 
               //■変更を通知

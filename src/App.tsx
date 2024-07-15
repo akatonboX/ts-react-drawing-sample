@@ -23,13 +23,17 @@ function App() {
       shape: {
         id: window.crypto.randomUUID(),
         type: "rect",
-        left: 0,
-        top: 0, 
-        width: 100,
-        height: 100,
-        backgroudColor: "white",
-        lineColor: "black",
-        angle: 0,
+        surface: {
+          left: 0,
+          top: 0, 
+          width: 100,
+          height: 100,
+          backgroudColor: "white",
+          angle: 0,
+        },
+        line: {
+          color: "black",
+        }        
       }
     },
     {
@@ -37,13 +41,17 @@ function App() {
       shape: {
         id: window.crypto.randomUUID(),
         type: "rect",
-        left: 0,
-        top: 0, 
-        width: 100,
-        height: 100,
-        backgroudColor: "red",
-        lineColor: "black",
-        angle: 0,
+        surface: {
+          left: 0,
+          top: 0, 
+          width: 100,
+          height: 100,
+          backgroudColor: "red",
+          angle: 0,
+        },
+        line: {
+          color: "black",
+        }   
       }
     },
   ];
@@ -54,93 +62,122 @@ function App() {
     {
       id: window.crypto.randomUUID(),
       type: "rect",
-      
-      left: 50,
-      top: 50, 
-      width: 100,
-      height: 100,
-      backgroudColor: "blue",
-      lineColor: "blue",
-      angle: 0,
+      surface: {
+        left: 50,
+        top: 50, 
+        width: 100,
+        height: 100,
+        backgroudColor: "blue",
+        angle: 0,
+      },
+      line: {
+        color: "black",
+      }   
     },
     {
       id: window.crypto.randomUUID(),
       type: "rect",
-      left: 50,
-      top: 50, 
-      width: 100,
-      height: 100,
-      backgroudColor: "red",
-      lineColor: "red",
-      angle: 45,
+      surface: {
+        left: 50,
+        top: 50, 
+        width: 100,
+        height: 100,
+        backgroudColor: "blue",
+        angle: 45,
+      },
+      line: {
+        color: "black",
+      }   
     },
     {
       id: window.crypto.randomUUID(),
       type: "group",
-      left: 0,
-      top: 0, 
-      width: 0,
-      height: 0,
-      backgroudColor: "red",
-      lineColor: "red",
-      angle: 0,
+      surface: {
+        left: 50,
+        top: 50, 
+        width: 100,
+        height: 100,
+        backgroudColor: "blue",
+        angle: 45,
+      },
+      line: {
+        color: "black",
+      },   
       shapes: [
         {
           id: window.crypto.randomUUID(),
           type: "rect",
-          
-          left: 150,
-          top: 150, 
-          width: 100,
-          height: 100,
-          backgroudColor: "blue",
-          lineColor: "blue",
-          angle: 0,
+          surface: {
+            left: 200,
+            top: 200, 
+            width: 100,
+            height: 100,
+            backgroudColor: "blue",
+            angle: 0,
+          },
+          line: {
+            color: "black",
+          }   
         },
         {
           id: window.crypto.randomUUID(),
           type: "rect",
-          left: 200,
-          top: 200, 
-          width: 100,
-          height: 100,
-          backgroudColor: "red",
-          lineColor: "red",
-          angle: 0,
+          surface: {
+            left: 250,
+            top: 250, 
+            width: 100,
+            height: 100,
+            backgroudColor: "red",
+            angle: 0,
+          },
+          line: {
+            color: "black",
+          }   
         },
         {
           id: window.crypto.randomUUID(),
           type: "group",
-          left: 0,
-          top: 0, 
-          width: 0,
-          height: 0,
-          backgroudColor: "red",
-          lineColor: "red",
-          angle: 0,
+          surface: {
+            left: 50,
+            top: 50, 
+            width: 100,
+            height: 100,
+            backgroudColor: "blue",
+            angle: 0,
+          },
+          line: {
+            color: "black",
+          },   
           shapes: [
             {
               id: window.crypto.randomUUID(),
               type: "rect",
-              
-              left: 300,
-              top: 300, 
-              width: 100,
-              height: 100,
-              backgroudColor: "blue",
-              lineColor: "blue",
-              angle: 0,
+              surface: {
+                left: 300,
+                top: 300, 
+                width: 100,
+                height: 100,
+                backgroudColor: "blue",
+                angle: 0,
+              },
+              line: {
+                color: "black",
+              }   
             },
             {
               id: window.crypto.randomUUID(),
               type: "rect",
-              left: 350,
-              top: 350, 
-              width: 100,
-              height: 100,
-              backgroudColor: "red",
-              lineColor: "red",
-              angle: 0,
+              surface: {
+                left: 350,
+                top: 350, 
+                width: 100,
+                height: 100,
+                backgroudColor: "red",
+                angle: 0,
+              },
+              line: {
+                color: "black",
+              }   
             },
           ]
         },
@@ -179,7 +216,7 @@ function App() {
                       key={item.appendItem.shape.id} 
                       style={newShape?.id === item.appendItem.shape.id ? {backgroundColor: "#F5F5F5", border: "1px solid #C7C7C7"} : undefined}
                       onClick={e => {setNewShape(item.appendItem.shape);console.log("★★")}}>
-                      <svg width={24} height={24} viewBox={`${item.appendItem.shape.left} ${item.appendItem.shape.top} ${item.appendItem.shape.width} ${item.appendItem.shape.height}`}>
+                      <svg width={24} height={24} viewBox={`${item.appendItem.shape.surface?.left} ${item.appendItem.shape.surface?.top} ${item.appendItem.shape.surface?.width} ${item.appendItem.shape.surface?.height}`}>
                         <item.driver.viewerComponent key={item.appendItem.shape.id} shape={item.appendItem.shape}/>
                       </svg>
                     </div>
