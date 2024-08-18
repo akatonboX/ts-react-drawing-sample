@@ -2,7 +2,7 @@ import React from 'react';
 import logo from './logo.svg';
 import './App.css';
 import { Group, Shape, ShapeDriver, ajustGroup, isGroup } from './lib/core';
-import { rectDriver } from './lib/drivers';
+import { lineDriver, rectDriver } from './lib/drivers';
 import { Drawing } from './lib/ui';
 import { applyToPoint, compose, rotate, rotateDEG, scale, translate } from 'transformation-matrix';
 import styles from "./App.module.scss";
@@ -57,8 +57,20 @@ function App() {
   ];
   const shapeDrivers =[
     rectDriver,
+    lineDriver
   ];
   const data = [
+    {
+      id: window.crypto.randomUUID(),
+      type: "line",
+      line: {
+        color: "black",
+      },
+      points: [
+        {left: 100, top:100},
+        {left: 200, top:200},
+      ]
+    },
     {
       id: window.crypto.randomUUID(),
       type: "rect",

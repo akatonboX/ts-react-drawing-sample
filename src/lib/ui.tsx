@@ -1,9 +1,10 @@
 import React, { MouseEventHandler } from 'react';
 import lodash from 'lodash';
-import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, findShape, findTopGroup, isGroup, moveShape, resizeShape, ResizeCommand, routeShape, Surface } from './core';
+import { Group, Shape, ShapeDriver, ShapeMouseEventHandler, ShapeViewerComponent, findShape, findTopGroup, isGroup, moveShape, resizeShape, ResizeCommandType, routeShape, Surface, CommandType } from './core';
 import { clientToDrawingPoint } from './util';
 import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 import styles from "./ui.module.scss";
+import { NumbersRounded } from '@mui/icons-material';
 
 
 export interface Selection{
@@ -32,22 +33,18 @@ interface MouseEventConnectorManger{
   onMousedown: MouseEventConnector;
 }
 
-function createZoomedSurface(surface: Surface, zoom: number){
-  const zoomedSurface = lodash.cloneDeep(surface);
-  zoomedSurface.left = surface.left * zoom;
-  zoomedSurface.top = surface.top * zoom;
-  zoomedSurface.width = surface.width * zoom;
-  zoomedSurface.height = surface.height * zoom;
-  return zoomedSurface;
-}
 function createZoomedShape(shape: Shape, zoom: number){
   const zoomedShape = lodash.cloneDeep(shape);
-  if(shape.surface != null && zoomedShape.surface != null){
-    zoomedShape.surface.left = shape.surface.left * zoom;
-    zoomedShape.surface.top = shape.surface.top * zoom;
-    zoomedShape.surface.width = shape.surface.width * zoom;
-    zoomedShape.surface.height = shape.surface.height * zoom;
+  if(zoomedShape.surface != null){
+    zoomedShape.surface.left = zoomedShape.surface.left * zoom;
+    zoomedShape.surface.top = zoomedShape.surface.top * zoom;
+    zoomedShape.surface.width = zoomedShape.surface.width * zoom;
+    zoomedShape.surface.height = zoomedShape.surface.height * zoom;
   }
+  (zoomedShape.points ?? []).forEach(point => {
+    point.left = point.left * zoom;
+    point.top = point.top * zoom;
+  });
   return zoomedShape;
 }
 
@@ -252,9 +249,9 @@ function Viewer(
               <g key={target.shape.id} style={{cursor: selectedTarget != null ? "move" : undefined}} >
                 <Component    
                   shape={zoomedShape} 
-                  onClick={(shapeId, e) => {props.mouseEventConnectorManger.onClick.execute(shapeId, e)}}
-                  onContextMenu={(shapeId, e) => {props.mouseEventConnectorManger.onContextMenu.execute(shapeId, e)}}
-                  onMousedown={(shapeId, e) => {props.mouseEventConnectorManger.onMousedown.execute(shapeId, e)}}
+                  onClick={(shapeId, e, option) => {props.mouseEventConnectorManger.onClick.execute(shapeId, e, option)}}
+                  onContextMenu={(shapeId, e, option) => {props.mouseEventConnectorManger.onContextMenu.execute(shapeId, e, option)}}
+                  onMousedown={(shapeId, e, option) => {props.mouseEventConnectorManger.onMousedown.execute(shapeId, e, option)}}
                 />
               </g>
             );
@@ -289,12 +286,14 @@ function Editor(
   const executeCommandInfo = React.useRef<null | {
     type: string,
     targetShapeId: string,
+    option?: any;
     startPoint: {x: number, y: number},
   }>(null);
-  const startEdit = (startX: number, startY: number, command: string, targetShapeId: string) => {
+  const startEdit = (startX: number, startY: number, command: string, targetShapeId: string, option?: any) => {
     executeCommandInfo.current = {
       type: command,
       targetShapeId: targetShapeId,
+      option: option,
       startPoint: {x: startX, y: startY},
     }
   }
@@ -440,7 +439,7 @@ function Editor(
 
             //■サイズを変更
             props.selection.shapes.forEach(selectedShape => {
-              resizeShape(props.shapes, selectedShape, additonal, executeCommandInfo.current?.type as ResizeCommand);
+              resizeShape(props.shapes, selectedShape, additonal, executeCommandInfo.current?.type as ResizeCommandType);
             }); 
 
 
@@ -456,6 +455,19 @@ function Editor(
 
             //■すべての選択に対して処理
             props.selection.shapes.forEach(shape => {routeShape(props.shapes, shape, {angle: angle}) });
+            break;
+
+          case "move-point":
+            const index = executeCommandInfo.current.option?.index;
+            if(index != null && lodash.isNumber(index)){
+              const shape = props.selection.shapes.find(shape => shape.id === executeCommandInfo.current?.targetShapeId);
+              if(shape != null && shape.points != null){
+                 shape.points[index].left = currentPoint.x;
+                 shape.points[index].top = currentPoint.y;
+              }
+
+              
+            }
             break;
         }
 
@@ -473,17 +485,19 @@ function Editor(
     <>
       {props.selection.shapes.map(shape => {
      
-        if(shape.surface != null){
-          const zoomedSurface = createZoomedSurface(shape.surface, props.zoom);
-          //■グループの時はマージンをとる
-          if(isGroup(shape)){
-            zoomedSurface.left -= 10;
-            zoomedSurface.top -= 10;
-            zoomedSurface.width += 20;
-            zoomedSurface.height += 20;
-          }
-          return (
-            <g key={shape.id} transform={`rotate(${zoomedSurface.angle}, ${zoomedSurface.left + (zoomedSurface.width / 2)}, ${zoomedSurface.top + (zoomedSurface.height / 2)})`} >
+        const zoomedShape = createZoomedShape(shape, props.zoom);
+        const zoomedSurface = zoomedShape.surface;
+        if(isGroup(zoomedShape) && zoomedSurface != null){
+          zoomedSurface.left -= 10;
+          zoomedSurface.top -= 10;
+          zoomedSurface.width += 20;
+          zoomedSurface.height += 20;
+        }
+        
+        return (
+          <g key={shape.id}>
+            {zoomedSurface != null ? // 面の編集
+            <g transform={`rotate(${zoomedSurface.angle}, ${zoomedSurface.left + (zoomedSurface.width / 2)}, ${zoomedSurface.top + (zoomedSurface.height / 2)})`} >
               <rect x={zoomedSurface.left} y={zoomedSurface.top} width={zoomedSurface.width} height={zoomedSurface.height} fill="none" stroke="black" strokeWidth="1" strokeDasharray="2" />
               <DragPoint shapeId={shape.id} left={zoomedSurface.left} top={zoomedSurface.top} commnad="nw-resize" startEdit={startEdit}/>
               <DragPoint shapeId={shape.id} left={zoomedSurface.left + (zoomedSurface.width / 2)} top={zoomedSurface.top} commnad="n-resize" startEdit={startEdit}/>
@@ -508,11 +522,12 @@ function Editor(
               <line x1={zoomedSurface.left + (zoomedSurface.width / 2)} y1={zoomedSurface.top - 30} x2={zoomedSurface.left + (zoomedSurface.width / 2)}  y2={zoomedSurface.top}  stroke="black" strokeWidth={1} />
 
             </g>
-          );
-        }
-        else{
-          return <>hoge</>;
-        }
+            : <></>}
+            {(zoomedShape.points ?? []).map((point, index) => {
+              return <DragPoint shapeId={shape.id} left={point.left} top={point.top} commnad="move-point" startEdit={startEdit} option={{index: index}}/>
+            })}
+          </g>
+        );
       })}
     </>
   );
@@ -524,12 +539,19 @@ function DragPoint(
     shapeId: string,
     left: number,
     top: number,
-    commnad: ResizeCommand,
-    startEdit:  (startX: number, startY: number, command: string, targetShapeId: string) => void,
+    commnad: CommandType,
+    option?: any;
+    startEdit:  (startX: number, startY: number, command: string, targetShapeId: string, option?: any) => void,
   }
 ){
-  return <circle cx={props.left} cy={props.top} r="6" fill="white" stroke="black" strokeWidth="1" style={{cursor: props.commnad}} onMouseDown={e => {
-    props.startEdit(e.clientX, e.clientY, props.commnad, props.shapeId);
+  const cursor = (() => {
+    switch(props.commnad){
+      case "move-point": return "move";
+      default: return props.commnad;
+    }
+  })();
+  return <circle cx={props.left} cy={props.top} r="6" fill="white" stroke="black" strokeWidth="1" style={{cursor: cursor}} onMouseDown={e => {
+    props.startEdit(e.clientX, e.clientY, props.commnad, props.shapeId, props.option);
   }} />
 }
 

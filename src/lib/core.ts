@@ -3,6 +3,13 @@ import React from 'react';
 import { Matrix, applyToPoint, compose, rotateDEG } from 'transformation-matrix';
 
 const MIN_SHAPE_SIZE = 30;
+export interface Connector{
+  
+}
+export interface Point{
+  left: number;
+  top: number;
+}
 export interface Surface{
   left: number;
   top: number;
@@ -18,7 +25,8 @@ export interface Shape{
   surface?: Surface;
   line: {
     color: string;
-  }
+  };
+  points?: Point[];
   
 }
 
@@ -80,7 +88,7 @@ export function ajustGroup(group: Group): void{
     }
 
     //■交換
-    if(shape.surface != null){
+    if(shape.surface != null){//surfaceのとき
       if(data.left > shape.surface.left)
         data.left = shape.surface.left;
       if(data.right < shape.surface.left + shape.surface.width)
@@ -89,6 +97,18 @@ export function ajustGroup(group: Group): void{
         data.top = shape.surface.top;
       if(data.bottom < shape.surface.top + shape.surface.height)
         data.bottom = shape.surface.top + shape.surface.height;
+    }
+    else if(shape.points != null){//surfaceではないときは、pointを加味する
+      shape.points.forEach(point => {
+        if(data.left > point.left)
+          data.left = point.left;
+        if(data.right < point.left)
+          data.right = point.left;
+        if(data.top > point.top)
+          data.top = point.top;
+        if(data.bottom < point.top)
+          data.bottom = point.top;
+      });
     }
   });
 
@@ -104,10 +124,11 @@ export function ajustGroup(group: Group): void{
 /**
  * Shapeに対するマウスイベントハンドラ
  */
-export type ShapeMouseEventHandler = (shapeId: string, mouseEvent: React.MouseEvent) => void;
+export type ShapeMouseEventHandler = (shapeId: string, mouseEvent: React.MouseEvent, option?: any) => void;
 
 /** サイズ変更のコマンドの種類 */
-export type ResizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" | "se-resize" | "s-resize" | "sw-resize" | "sw-resize" | "w-resize";
+export type ResizeCommandType = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" | "se-resize" | "s-resize" | "sw-resize" | "sw-resize" | "w-resize";
+export type CommandType = ResizeCommandType | "move" | "move-point";
 
 /**
  * 移動の際、shpaeで固定されるポイントを取得する
@@ -115,7 +136,7 @@ export type ResizeCommand = "nw-resize" | "n-resize" | "ne-resize" | "e-resize" 
  * @param command 
  * @returns 
  */
-function getFixedPointWhenMove(surface: Surface, command: ResizeCommand) {
+function getFixedPointWhenResize(surface: Surface, command: ResizeCommandType) {
   
   switch(command){
     case "nw-resize": return {x: surface.left + surface.width, y: surface.top + surface.height};
@@ -140,6 +161,7 @@ export function moveShape(shapes: Shape[], shape: Shape, additional:{left: numbe
   const originalShape = findShape(shapes, shape.id);
   if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
   
+  //■面の移動
   if(originalShape.surface != null && shape.surface != null){
     shape.surface.left = (originalShape.surface.left) + additional.left;
     shape.surface.top = (originalShape.surface.top) + additional.top;
@@ -149,6 +171,14 @@ export function moveShape(shapes: Shape[], shape: Shape, additional:{left: numbe
       });
     }
   }
+  //■ポイントの移動
+  (shape.points ?? []).forEach((point, index) => {
+    if(originalShape.points != null){
+      point.left = (originalShape.points[index].left) + additional.left;
+      point.top = (originalShape.points[index].top) + additional.top;
+    }
+  });
+
 }
 /**
  * shapeのサイズを変更する
@@ -157,10 +187,10 @@ export function moveShape(shapes: Shape[], shape: Shape, additional:{left: numbe
  * @param additional 
  * @param command 
  */
-export function resizeShape(shapes: Shape[], shape: Shape, additional:{width: number, height: number}, command: ResizeCommand){
+export function resizeShape(shapes: Shape[], shape: Shape, additional:{width: number, height: number}, command: ResizeCommandType){
   const originalShape = findShape(shapes, shape.id);
   if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
-    if(originalShape.surface != null && shape.surface != null){
+  if(originalShape.surface != null && shape.surface != null){
     //■サイズの調整
     const [additionalWidth, additioalHeight] = (() => [
       originalShape.surface.width + additional.width >= MIN_SHAPE_SIZE ? additional.width : MIN_SHAPE_SIZE - originalShape.surface.width,
@@ -179,14 +209,14 @@ export function resizeShape(shapes: Shape[], shape: Shape, additional:{width: nu
       //■オリジナルのshapeを回転したうえで、固定されるべきPointを取得
       const routatedOriginalPoint = (() => {
         const matrix = compose(rotateDEG(originalShape.surface.angle, originalShape.surface.left + originalShape.surface.width / 2, originalShape.surface.top + originalShape.surface.height / 2));
-        const point = getFixedPointWhenMove(originalShape.surface, command);
+        const point = getFixedPointWhenResize(originalShape.surface, command);
         return applyToPoint(matrix, point);
       })();
 
       //■変更後のshapeを開店したうえで、固定されるべきPointを取得
       const routatedNewPoint = (() => {
         const matrix = compose(rotateDEG(shape.surface.angle, shape.surface.left + shape.surface.width / 2, shape.surface.top + shape.surface.height / 2));
-        const point = getFixedPointWhenMove(shape.surface, command);
+        const point = getFixedPointWhenResize(shape.surface, command);
         return applyToPoint(matrix, point);
       })();
 
@@ -218,7 +248,10 @@ function _routeShape(shapes: Shape[], group: Group, matrix: Matrix){
   group.shapes.forEach(shape => {
     const originalShape = findShape(shapes, shape.id);
     if(originalShape == null)throw new Error(`shapeが見つからない。shapeId=${shape.id}`);
-    if(originalShape.surface != null && shape.surface != null){
+
+    //■surfaceの回転
+    if(originalShape.surface != null){//surfaceのとき
+      if(shape.surface == null)throw Error("originalShape.surfaceが存在するのに、shape.surfaceが存在しない。");
       //■shapeの回転後の座標を得る
       const shapeCenterPoint = {x: originalShape.surface.left + originalShape.surface.width / 2, y: originalShape.surface.top + originalShape.surface.height / 2};
       const shapeMatrix = compose(rotateDEG(originalShape.surface.angle, shapeCenterPoint.x, shapeCenterPoint.y));
@@ -243,6 +276,15 @@ function _routeShape(shapes: Shape[], group: Group, matrix: Matrix){
         _routeShape(shapes, shape, matrix);
       }
     }
+    //■pointの回転
+    if(originalShape.points != null){
+      originalShape.points.forEach((originPoint, index) => {
+        if(shape.points == null)throw Error("originalShape.pointsが存在するのに、shape.pointsが存在しない。");
+        if(shape.points.length <= index)throw Error("originalShape.pointsとshape.pointsの数が不一致。");
+        const routedPoint = applyToPoint(matrix, {x: originPoint.left, y: originPoint.top});
+        shape.points[index] = {left: routedPoint.x, top: routedPoint.y};
+      });
+    };
   });
 }
 
